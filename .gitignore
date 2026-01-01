@@ -1,0 +1,15 @@
+
+# Build Results
+[Bb]in/
+[Oo]bj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userprefs
+
+# Executables
+*.exe
+*.dll
+*.pdb
