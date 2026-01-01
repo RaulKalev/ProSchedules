@@ -8,7 +8,7 @@ namespace ProSchedules
     [AppLoader]
     public class App : IExternalApplication
     {
-        private const string RibbonTabName = "ProSchedules";
+        private const string RibbonTabName = "RK Tools";
         private const string ToolsPanelName = "Tools";
         private const string DuplicateSheetsId = "DuplicateSheetsCommand";
 
@@ -32,7 +32,7 @@ namespace ProSchedules
 
             var duplicateSheetsData = new PushButtonData(
                 duplicateSheetsId, 
-                "Sheet\nManager",
+                "Pro\nSchedules",
                 typeof(DuplicateSheetsCommand).Assembly.Location, 
                 typeof(DuplicateSheetsCommand).FullName
             )
