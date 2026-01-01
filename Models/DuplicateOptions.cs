@@ -1,6 +1,6 @@
-using PlaceViews.ExternalEvents;
+using ProSchedules.ExternalEvents;
 
-namespace PlaceViews.Models
+namespace ProSchedules.Models
 {
     public class DuplicateOptions
     {

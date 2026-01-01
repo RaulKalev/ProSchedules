@@ -1,7 +1,7 @@
 using Autodesk.Revit.DB;
 using System.ComponentModel;
 
-namespace PlaceViews.Models
+namespace ProSchedules.Models
 {
     public enum SheetItemState
     {

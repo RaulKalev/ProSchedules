@@ -1,7 +1,7 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using PlaceViews.Models;
-using PlaceViews.Services;
+using ProSchedules.Models;
+using ProSchedules.Services;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
@@ -19,13 +19,13 @@ using System.Windows.Media;
 using System.Windows.Interop;
 using System.Windows.Threading;
 
-namespace PlaceViews.UI
+namespace ProSchedules.UI
 {
     public partial class DuplicateSheetsWindow : Window
     {
         #region Constants / PInvoke
 
-        private const string ConfigFilePath = @"C:\ProgramData\RK Tools\PlaceViews\config.json";
+        private const string ConfigFilePath = @"C:\ProgramData\RK Tools\ProSchedules\config.json";
         private const string WindowLeftKey = "DuplicateSheetsWindow.Left";
         private const string WindowTopKey = "DuplicateSheetsWindow.Top";
         private const string WindowWidthKey = "DuplicateSheetsWindow.Width";
@@ -813,8 +813,8 @@ namespace PlaceViews.UI
             try
             {
                 var themeUri = new Uri(_isDarkMode 
-                    ? "pack://application:,,,/PlaceViews;component/UI/Themes/DarkTheme.xaml" 
-                    : "pack://application:,,,/PlaceViews;component/UI/Themes/LightTheme.xaml", UriKind.Absolute);
+                    ? "pack://application:,,,/ProSchedules;component/UI/Themes/DarkTheme.xaml" 
+                    : "pack://application:,,,/ProSchedules;component/UI/Themes/LightTheme.xaml", UriKind.Absolute);
                 
                 var newDict = new ResourceDictionary { Source = themeUri };
                 

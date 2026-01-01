@@ -1,10 +1,10 @@
 <Window
-    x:Class="PlaceViews.UI.DuplicateSheetsWindow"
+    x:Class="ProSchedules.UI.DuplicateSheetsWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:av="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:local="clr-namespace:PlaceViews"
-    xmlns:ui="clr-namespace:PlaceViews.UI"
+    xmlns:local="clr-namespace:ProSchedules"
+    xmlns:ui="clr-namespace:ProSchedules.UI"
     xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     Title="Duplicate Sheets"
@@ -27,7 +27,7 @@
                 </ResourceDictionary>
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.ComboBox.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.Dark.xaml" />
-                <ResourceDictionary Source="pack://application:,,,/PlaceViews;component/UI/Themes/ElementStyles.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/ProSchedules;component/UI/Themes/ElementStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
 
             <Style x:Key="FullWidthGroupBoxStyle"

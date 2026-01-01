@@ -4,7 +4,7 @@ using Autodesk.Revit.UI;
 using System;
 using System.Runtime.InteropServices;
 
-namespace PlaceViews.Commands
+namespace ProSchedules.Commands
 {
     [Transaction(TransactionMode.Manual)]
     public class DuplicateSheetsCommand : IExternalCommand

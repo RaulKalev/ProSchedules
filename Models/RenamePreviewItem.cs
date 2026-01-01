@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace PlaceViews.Models
+namespace ProSchedules.Models
 {
     public class RenamePreviewItem : INotifyPropertyChanged
     {

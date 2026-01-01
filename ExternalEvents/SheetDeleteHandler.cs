@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-namespace PlaceViews.ExternalEvents
+namespace ProSchedules.ExternalEvents
 {
     public class SheetDeleteHandler : IExternalEventHandler
     {

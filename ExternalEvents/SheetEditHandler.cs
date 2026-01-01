@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using PlaceViews.Models;
+using ProSchedules.Models;
 
-namespace PlaceViews.ExternalEvents
+namespace ProSchedules.ExternalEvents
 {
     public class SheetEditHandler : IExternalEventHandler
     {

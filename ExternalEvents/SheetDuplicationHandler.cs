@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using PlaceViews.Models;
+using ProSchedules.Models;
 
-namespace PlaceViews.ExternalEvents
+namespace ProSchedules.ExternalEvents
 {
     // Mode definition
     public enum SheetDuplicateMode
@@ -240,7 +240,7 @@ namespace PlaceViews.ExternalEvents
 
             // 6. Handle Views (Legends, Schedules, Model Views)
             bool includeModelViews = (options.DuplicateMode == SheetDuplicateMode.WithViews);
-            DuplicateAndPlaceViews(doc, sourceSheet, newSheet, includeModelViews, options.KeepLegends, options.KeepSchedules);
+            DuplicateAndProSchedules(doc, sourceSheet, newSheet, includeModelViews, options.KeepLegends, options.KeepSchedules);
 
             return newSheet;
         }
@@ -290,7 +290,7 @@ namespace PlaceViews.ExternalEvents
             }
         }
 
-        private void DuplicateAndPlaceViews(Document doc, ViewSheet source, ViewSheet target, bool includeModelViews, bool keepLegends, bool keepSchedules)
+        private void DuplicateAndProSchedules(Document doc, ViewSheet source, ViewSheet target, bool includeModelViews, bool keepLegends, bool keepSchedules)
         {
             // 1. Handle Schedules (Explicitly via ScheduleSheetInstance)
             if (keepSchedules)
