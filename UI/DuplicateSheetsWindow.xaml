@@ -275,6 +275,9 @@
                     VerticalAlignment="Center" 
                     HorizontalAlignment="Center"
                     MouseDown="Popup_MouseDown">
+                <Border.RenderTransform>
+                    <TranslateTransform x:Name="SortPopupTransform"/>
+                </Border.RenderTransform>
                 <Border.Effect>
                     <DropShadowEffect BlurRadius="20" ShadowDepth="10" Opacity="0.5"/>
                 </Border.Effect>
@@ -287,7 +290,10 @@
                     </Grid.RowDefinitions>
                     
                     <!-- Header -->
-                    <Grid Grid.Row="0" Margin="0,0,0,20">
+                    <Grid Grid.Row="0" Margin="0,0,0,20" Background="Transparent"
+                          MouseDown="SortHeader_MouseDown"
+                          MouseMove="SortHeader_MouseMove"
+                          MouseUp="SortHeader_MouseUp">
                         <TextBlock Text="Sorting" FontSize="18" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
                         <Button HorizontalAlignment="Right" 
                                 Click="AddSortLevel_Click"
@@ -339,9 +345,9 @@
                                             
                                             <!-- Row 2: Checkboxes (Visual placeholders) -->
                                             <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Orientation="Horizontal" Margin="0,10,0,0">
-                                                <CheckBox Content="Header" IsChecked="{Binding ShowHeader}" Style="{StaticResource DarkCheckBoxStyle}" Margin="0,0,20,0"/>
-                                                <CheckBox Content="Footer" IsChecked="{Binding ShowFooter}" Style="{StaticResource DarkCheckBoxStyle}" Margin="0,0,20,0"/>
-                                                <CheckBox Content="Blank line" IsChecked="{Binding ShowBlankLine}" Style="{StaticResource DarkCheckBoxStyle}"/>
+                                                <CheckBox Content="Header" IsChecked="{Binding ShowHeader}" Style="{StaticResource DarkCheckBoxStyle}" Foreground="White" Margin="0,0,20,0"/>
+                                                <CheckBox Content="Footer" IsChecked="{Binding ShowFooter}" Style="{StaticResource DarkCheckBoxStyle}" Foreground="White" Margin="0,0,20,0"/>
+                                                <CheckBox Content="Blank line" IsChecked="{Binding ShowBlankLine}" Style="{StaticResource DarkCheckBoxStyle}" Foreground="White"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -352,8 +358,20 @@
                     
                     <!-- Footer -->
                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Cancel" Click="SortCancel_Click" Style="{StaticResource CustomActionButtonStyle}" Background="Transparent" Foreground="White" BorderBrush="#555555" Margin="0,0,10,0"/>
-                        <Button Content="Apply" Click="SortApply_Click" Style="{StaticResource CustomActionButtonStyle}"/>
+                        <StackPanel.Resources>
+                            <Style x:Key="CancelButtonStyle" BasedOn="{StaticResource CustomActionButtonStyle}" TargetType="Button">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="BorderBrush" Value="#555555"/>
+                                <Setter Property="Foreground" Value="White"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#444444"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Resources>
+                        <Button Content="Apply" Click="SortApply_Click" Style="{StaticResource CustomActionButtonStyle}" Margin="0,0,10,0"/>
+                        <Button Content="Cancel" Click="SortCancel_Click" Style="{StaticResource CancelButtonStyle}" Margin="0"/>
                     </StackPanel>
                 </Grid>
              </Border>

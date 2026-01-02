@@ -39,7 +39,8 @@ namespace ProSchedules.Services
 
         public ScheduleData GetScheduleData(ViewSchedule schedule)
         {
-            var data = new ScheduleData();
+            var data = new Models.ScheduleData();
+            data.ScheduleId = schedule.Id;
             if (schedule == null) return data;
 
             ScheduleDefinition def = schedule.Definition;

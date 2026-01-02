@@ -110,6 +110,7 @@ namespace ProSchedules.UI
         private ProSchedules.Models.ScheduleData _currentScheduleData;
         private Dictionary<ElementId, bool> _scheduleItemizeSettings = new Dictionary<ElementId, bool>();
         private System.Data.DataTable _rawScheduleData;
+        private Dictionary<ElementId, ObservableCollection<SortItem>> _scheduleSortSettings = new Dictionary<ElementId, ObservableCollection<SortItem>>();
 
         #endregion
 
@@ -204,7 +205,24 @@ namespace ProSchedules.UI
             
             if (selectedItem != null && selectedItem.Schedule != null)
             {
+                if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
+                {
+                    // Save previous sorting
+                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = new ObservableCollection<SortItem>(SortCriteria);
+                }
+
                 LoadScheduleData(selectedItem.Schedule);
+                
+                // Load sorting if exists
+                if (_scheduleSortSettings.ContainsKey(selectedItem.Id))
+                {
+                    SortCriteria.Clear();
+                    foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item);
+                }
+                else
+                {
+                    SortCriteria.Clear();
+                }
             }
             else
             {
@@ -651,20 +669,31 @@ namespace ProSchedules.UI
 
         private void Sort_Click(object sender, RoutedEventArgs e)
         {
-            // Populate available columns if empty
-            if (AvailableSortColumns.Count == 0 && SheetsDataGrid.Columns.Count > 0)
+            // Always refresh available columns from current DataGrid state
+            AvailableSortColumns.Clear();
+            AvailableSortColumns.Add("(none)");
+            if (SheetsDataGrid.Columns.Count > 0)
             {
-                AvailableSortColumns.Add("(none)");
                 foreach (var col in SheetsDataGrid.Columns)
                 {
-                    if (col.Header is string header && !string.IsNullOrEmpty(header) && header != "Count")
+                    if (col.Header is string header && !string.IsNullOrEmpty(header) 
+                        && header != "Count" && header != "Sheet Number" && header != "Sheet Name") 
                     {
-                        AvailableSortColumns.Add(header);
+                         // Optionally exclude standard fields if they are always there, 
+                         // or user wants to sort by parameters only? 
+                         // User said "parameters according to opened schedule". 
+                         // Sheet Number/Name are always there. I'll include them.
+                         AvailableSortColumns.Add(header);
                     }
+                     // Actually, just add everything except Count/CheckBox
+                     else if (col.Header is string h3 && (h3 == "Sheet Number" || h3 == "Sheet Name"))
+                     {
+                         AvailableSortColumns.Add(h3);
+                     }
                 }
             }
-
-            // Initialize with one item if empty
+            
+            // Ensure at least one blank sort item if empty
             if (SortCriteria.Count == 0)
             {
                 SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
@@ -706,6 +735,46 @@ namespace ProSchedules.UI
         private void SortCancel_Click(object sender, RoutedEventArgs e)
         {
             SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+        }
+
+        private bool _isSortDragging = false;
+        private System.Windows.Point _sortDragStart;
+
+        private void SortHeader_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ChangedButton == MouseButton.Left)
+            {
+                var element = sender as IInputElement;
+                _isSortDragging = true;
+                _sortDragStart = e.GetPosition(this);
+                element.CaptureMouse();
+            }
+        }
+
+        private void SortHeader_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_isSortDragging && sender is IInputElement element)
+            {
+                var current = e.GetPosition(this);
+                var diff = current - _sortDragStart;
+                
+                if (SortPopupTransform != null)
+                {
+                    SortPopupTransform.X += diff.X;
+                    SortPopupTransform.Y += diff.Y;
+                }
+                
+                _sortDragStart = current;
+            }
+        }
+
+        private void SortHeader_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_isSortDragging)
+            {
+                _isSortDragging = false;
+                (sender as IInputElement)?.ReleaseMouseCapture();
+            }
         }
 
         private void RemoveSortItem_Click(object sender, RoutedEventArgs e)
