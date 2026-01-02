@@ -22,6 +22,47 @@ using System.Data;
 
 namespace ProSchedules.UI
 {
+    public class SortItem : System.ComponentModel.INotifyPropertyChanged
+    {
+        private string _selectedColumn;
+        public string SelectedColumn
+        {
+            get => _selectedColumn;
+            set { _selectedColumn = value; OnPropertyChanged(nameof(SelectedColumn)); }
+        }
+
+        private bool _isAscending = true;
+        public bool IsAscending
+        {
+            get => _isAscending;
+            set { _isAscending = value; OnPropertyChanged(nameof(IsAscending)); }
+        }
+        
+        // Visual placeholders matching screenshot
+        public bool ShowHeader { get; set; }
+        public bool ShowFooter { get; set; }
+        public bool ShowBlankLine { get; set; }
+
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+        protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+    }
+
+    public class InverseBooleanConverter : System.Windows.Data.IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            if (targetType != typeof(bool?) && targetType != typeof(bool))
+                throw new InvalidOperationException("The target must be a boolean");
+
+            return !(bool)value;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            return !(bool)value;
+        }
+    }
+
     public partial class DuplicateSheetsWindow : Window
     {
         #region Constants / PInvoke
@@ -61,6 +102,8 @@ namespace ProSchedules.UI
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<RenamePreviewItem> RenamePreviewItems { get; set; } = new ObservableCollection<RenamePreviewItem>();
+        public ObservableCollection<SortItem> SortCriteria { get; set; } = new ObservableCollection<SortItem>();
+        public ObservableCollection<string> AvailableSortColumns { get; set; } = new ObservableCollection<string>();
 
         private Commands.ParameterUpdateHandler _paramHandler;
         private ExternalEvent _paramExternalEvent;
@@ -76,6 +119,7 @@ namespace ProSchedules.UI
         {
             _uiApplication = app;
             InitializeComponent();
+            DataContext = this;
 
             // Create duplication handler
             _handler = new ExternalEvents.SheetDuplicationHandler();
@@ -523,6 +567,11 @@ namespace ProSchedules.UI
             OptionsPopupOverlay.Visibility = System.Windows.Visibility.Visible;
         }
 
+        private void Popup_MouseDown(object sender, MouseButtonEventArgs e)
+        {
+            e.Handled = true; // Prevent click from bubbling to background
+        }
+
         private void OptionsPopupBackground_Click(object sender, MouseButtonEventArgs e)
         {
             // Close on background click? User choice, but safe to allow cancelling
@@ -597,6 +646,73 @@ namespace ProSchedules.UI
             catch (Exception ex)
             {
                 ShowPopup("Error", ex.Message);
+            }
+        }
+
+        private void Sort_Click(object sender, RoutedEventArgs e)
+        {
+            // Populate available columns if empty
+            if (AvailableSortColumns.Count == 0 && SheetsDataGrid.Columns.Count > 0)
+            {
+                AvailableSortColumns.Add("(none)");
+                foreach (var col in SheetsDataGrid.Columns)
+                {
+                    if (col.Header is string header && !string.IsNullOrEmpty(header) && header != "Count")
+                    {
+                        AvailableSortColumns.Add(header);
+                    }
+                }
+            }
+
+            // Initialize with one item if empty
+            if (SortCriteria.Count == 0)
+            {
+                SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
+            }
+
+            SortPopupOverlay.Visibility = System.Windows.Visibility.Visible;
+        }
+
+        private void AddSortLevel_Click(object sender, RoutedEventArgs e)
+        {
+            SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
+        }
+
+        private void SortApply_Click(object sender, RoutedEventArgs e)
+        {
+             try
+            {
+                var view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
+                view.SortDescriptions.Clear();
+
+                foreach (var sort in SortCriteria)
+                {
+                    if (sort.SelectedColumn != "(none)" && !string.IsNullOrEmpty(sort.SelectedColumn))
+                    {
+                        view.SortDescriptions.Add(new System.ComponentModel.SortDescription(
+                            sort.SelectedColumn, 
+                            sort.IsAscending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending));
+                    }
+                }
+                
+                SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                ShowPopup("Sort Error", ex.Message);
+            }
+        }
+
+        private void SortCancel_Click(object sender, RoutedEventArgs e)
+        {
+            SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+        }
+
+        private void RemoveSortItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.DataContext is SortItem item)
+            {
+                SortCriteria.Remove(item);
             }
         }
 

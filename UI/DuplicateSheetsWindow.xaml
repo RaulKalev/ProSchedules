@@ -29,6 +29,8 @@
                 <ResourceDictionary Source="pack://application:,,,/MaterialDesignThemes.Wpf;component/Themes/MaterialDesignTheme.Dark.xaml" />
                 <ResourceDictionary Source="pack://application:,,,/ProSchedules;component/UI/Themes/ElementStyles.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            
+            <ui:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
 
             <Style x:Key="FullWidthGroupBoxStyle"
                    BasedOn="{StaticResource CustomGroupBoxStyle}"
@@ -260,7 +262,102 @@
                     Grid.Row="0"
                     Foreground="{DynamicResource ForegroundBrush}"
                     Loaded="TitleBar_Loaded" />
-
+        <!-- Sorting Popup Overlay -->
+        <Grid x:Name="SortPopupOverlay" Visibility="Collapsed" Background="Transparent"
+              MouseDown="OptionsPopupBackground_Click">
+             <Border Background="#1E1E1E" 
+                    BorderBrush="#333333" 
+                    BorderThickness="1" 
+                    CornerRadius="8" 
+                    Width="600" 
+                    Height="400"
+                    VerticalAlignment="Center" 
+                    HorizontalAlignment="Center"
+                    MouseDown="Popup_MouseDown">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="20" ShadowDepth="10" Opacity="0.5"/>
+                </Border.Effect>
+                
+                <Grid Margin="20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/> <!-- Header -->
+                        <RowDefinition Height="*"/>    <!-- Content -->
+                        <RowDefinition Height="Auto"/> <!-- Footer -->
+                    </Grid.RowDefinitions>
+                    
+                    <!-- Header -->
+                    <Grid Grid.Row="0" Margin="0,0,0,20">
+                        <TextBlock Text="Sorting" FontSize="18" FontWeight="SemiBold" Foreground="White" VerticalAlignment="Center"/>
+                        <Button HorizontalAlignment="Right" 
+                                Click="AddSortLevel_Click"
+                                Width="32" Height="32"
+                                Style="{StaticResource FlatIconButton}"
+                                ToolTip="Add Sort Level">
+                             <materialDesign:PackIcon Kind="Plus" Width="24" Height="24" Foreground="White"/>
+                        </Button>
+                    </Grid>
+                    
+                    <!-- Content ItemControl -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
+                        <ItemsControl ItemsSource="{Binding SortCriteria}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#252525" BorderBrush="#333333" BorderThickness="1" CornerRadius="4" Margin="0,0,0,10" Padding="10">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="80"/>
+                                                <ColumnDefinition Width="200"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            
+                                            <!-- Row 1: Sort By dropdown + Direction -->
+                                            <TextBlock Text="Sort by:" Foreground="Gray" VerticalAlignment="Center" Grid.Column="0"/>
+                                            
+                                            <ComboBox Grid.Column="1" 
+                                                      ItemsSource="{Binding DataContext.AvailableSortColumns, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      SelectedItem="{Binding SelectedColumn}"
+                                                      Style="{StaticResource DarkComboBoxStyle}"
+                                                      Margin="0,0,10,0"/>
+                                                      
+                                            <RadioButton Grid.Column="2" GroupName="{Binding GetHashCode}" Content="Ascending" 
+                                                         IsChecked="{Binding IsAscending}" Foreground="White" Margin="0,0,10,0"/>
+                                            <RadioButton Grid.Column="3" GroupName="{Binding GetHashCode}" Content="Descending" 
+                                                         IsChecked="{Binding IsAscending, Converter={StaticResource InverseBooleanConverter}}" Foreground="White"/>
+                                                         
+                                            <!-- Delete Button -->
+                                            <Button Grid.Column="5" Click="RemoveSortItem_Click" Style="{StaticResource FlatIconButton}" Width="24" Height="24">
+                                                <materialDesign:PackIcon Kind="Close" Width="16" Height="16" Foreground="Gray"/>
+                                            </Button>
+                                            
+                                            <!-- Row 2: Checkboxes (Visual placeholders) -->
+                                            <StackPanel Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="4" Orientation="Horizontal" Margin="0,10,0,0">
+                                                <CheckBox Content="Header" IsChecked="{Binding ShowHeader}" Style="{StaticResource DarkCheckBoxStyle}" Margin="0,0,20,0"/>
+                                                <CheckBox Content="Footer" IsChecked="{Binding ShowFooter}" Style="{StaticResource DarkCheckBoxStyle}" Margin="0,0,20,0"/>
+                                                <CheckBox Content="Blank line" IsChecked="{Binding ShowBlankLine}" Style="{StaticResource DarkCheckBoxStyle}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    
+                    <!-- Footer -->
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Click="SortCancel_Click" Style="{StaticResource CustomActionButtonStyle}" Background="Transparent" Foreground="White" BorderBrush="#555555" Margin="0,0,10,0"/>
+                        <Button Content="Apply" Click="SortApply_Click" Style="{StaticResource CustomActionButtonStyle}"/>
+                    </StackPanel>
+                </Grid>
+             </Border>
+        </Grid>
+        
                 <!-- Theme toggle -->
                 <ToggleButton
                     x:Name="ThemeToggleButton"
@@ -336,6 +433,12 @@
                                     Margin="0,0,6,0">
                                 <materialDesign:PackIcon Kind="Delete" Width="20" Height="20"/>
                             </Button>
+
+                            <Button Content="Sort"
+                                    Click="Sort_Click"
+                                    Style="{StaticResource CustomActionButtonStyle}"
+                                    Width="80" Height="32" FontSize="12" FontWeight="Bold"
+                                    Margin="0,0,6,0"/>
                         </StackPanel>
 
                         <!-- Schedule Select and Itemize -->
