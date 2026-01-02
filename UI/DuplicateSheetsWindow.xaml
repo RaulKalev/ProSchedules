@@ -316,11 +316,6 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
-                            <Button Content="Duplicate"
-                                    Click="AddDuplicates_Click"
-                                    Style="{StaticResource CustomActionButtonStyle}"
-                                    Width="140" Height="32" FontSize="12" FontWeight="Bold"
-                                    Margin="0,0,6,0"/>
 
                             <Button Content="Rename"
                                     Click="Rename_Click"
@@ -334,11 +329,13 @@
                                     Width="120" Height="32" FontSize="12" FontWeight="Bold"
                                     Margin="0,0,6,0"/>
 
-                            <Button Content="Delete"
-                                    Click="Delete_Click"
+                            <Button Click="Delete_Click"
                                     Style="{StaticResource CustomActionButtonStyle}"
-                                    Width="100" Height="32" FontSize="12" FontWeight="Bold"
-                                    Margin="0,0,6,0"/>
+                                    Width="32" Height="32"
+                                    ToolTip="Delete Selected"
+                                    Margin="0,0,6,0">
+                                <materialDesign:PackIcon Kind="Delete" Width="20" Height="20"/>
+                            </Button>
                         </StackPanel>
 
                         <!-- Schedule Select and Itemize -->
