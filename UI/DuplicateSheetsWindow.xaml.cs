@@ -166,6 +166,15 @@ namespace ProSchedules.UI
             DataContext = this;
 
             LoadData(app.ActiveUIDocument.Document);
+            
+            // Load persistent settings
+            LoadSortSettings();
+        }
+
+        private void MainWindow_Closed(object sender, EventArgs e)
+        {
+            SaveSortSettings();
+            SaveWindowState();
         }
 
         private void LoadData(Document doc)
@@ -232,6 +241,8 @@ namespace ProSchedules.UI
                 if (_scheduleSortSettings.ContainsKey(selectedItem.Id))
                 {
                     foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item.Clone());
+                    // Auto-apply immediately loading
+                    ApplyCurrentSortLogic();
                 }
             }
             else
@@ -756,33 +767,35 @@ namespace ProSchedules.UI
             SortPopupOverlay.Visibility = System.Windows.Visibility.Visible;
         }
 
-        private void AddSortLevel_Click(object sender, RoutedEventArgs e)
-        {
-            SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
-        }
-
         private void SortApply_Click(object sender, RoutedEventArgs e)
         {
-             try
-            {
-                var view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
-                view.SortDescriptions.Clear();
+            ApplyCurrentSortLogic();
+            SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+        }
 
-                foreach (var sort in SortCriteria)
-                {
-                    if (sort.SelectedColumn != "(none)" && !string.IsNullOrEmpty(sort.SelectedColumn))
-                    {
-                        view.SortDescriptions.Add(new System.ComponentModel.SortDescription(
-                            sort.SelectedColumn, 
-                            sort.IsAscending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending));
-                    }
-                }
-                
-                SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
-            }
-            catch (Exception ex)
+        private void ApplyCurrentSortLogic()
+        {
+            if (SheetsDataGrid.ItemsSource == null) return;
+            
+            System.ComponentModel.ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
+            view.SortDescriptions.Clear();
+
+            foreach (var sortItem in SortCriteria)
             {
-                ShowPopup("Sort Error", ex.Message);
+                if (string.IsNullOrEmpty(sortItem.SelectedColumn) || sortItem.SelectedColumn == "(none)") continue;
+                
+                // Map display name to binding path if necessary
+                string propertyName = sortItem.SelectedColumn;
+                
+                // If using DataTable, property name is column name
+                // If using SheetItem, property maps: 
+                if (propertyName == "Sheet Number") propertyName = "SheetNumber"; // SheetItem property
+                else if (propertyName == "Sheet Name") propertyName = "Name"; // SheetItem property
+                
+                view.SortDescriptions.Add(new System.ComponentModel.SortDescription(
+                    propertyName, 
+                    sortItem.IsAscending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending
+                ));
             }
         }
 
@@ -790,6 +803,102 @@ namespace ProSchedules.UI
         {
             SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
         }
+
+        #region Persistence
+
+        private void SaveSortSettings()
+        {
+            try
+            {
+                var dtos = new List<SavedScheduleSort>();
+                foreach(var kvp in _scheduleSortSettings)
+                {
+                    // Use robust ID extraction (Value or IntegerValue)
+                    long idVal = GetIdValue(kvp.Key);
+                    dtos.Add(new SavedScheduleSort 
+                    { 
+                        ScheduleId = idVal, 
+                        Items = kvp.Value.ToList() 
+                    });
+                }
+
+                string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProSchedules");
+                if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+
+                string file = System.IO.Path.Combine(folder, "sort_settings.json");
+                string json = Newtonsoft.Json.JsonConvert.SerializeObject(dtos, Newtonsoft.Json.Formatting.Indented);
+                System.IO.File.WriteAllText(file, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving settings: {ex.Message}");
+            }
+        }
+
+        private void LoadSortSettings()
+        {
+            try
+            {
+                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProSchedules", "sort_settings.json");
+                if (System.IO.File.Exists(file))
+                {
+                    string json = System.IO.File.ReadAllText(file);
+                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SavedScheduleSort>>(json);
+                    
+                    if (dtos != null)
+                    {
+                        _scheduleSortSettings.Clear();
+                        
+                        foreach(var dto in dtos)
+                        {
+                            // Reconstruct ElementId
+                            // Using the constructor available in older/newer API via helper or #if logic?
+                            // Just use reflection or try generic constructor if possible.
+                            // Actually, ElementId(long) exists in 2024+. ElementId(int) in older.
+                            // Since we target multiple frameworks, let's try to map safely?
+                            // Or just use the constructor that accepts long?
+                            // Warnings earlier said ElementId(int) is deprecated, use ElementId(long).
+                            
+                            ElementId eid;
+                            #if NET8_0_OR_GREATER
+                                eid = new ElementId((long)dto.ScheduleId);
+                            #else
+                                eid = new ElementId((int)dto.ScheduleId);
+                            #endif
+                            
+                            _scheduleSortSettings[eid] = new ObservableCollection<SortItem>(dto.Items);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading settings: {ex.Message}");
+            }
+        }
+
+        private long GetIdValue(ElementId id)
+        {
+            #if NET8_0_OR_GREATER
+                return id.Value;
+            #else
+                return id.IntegerValue;
+            #endif
+        }
+        
+        public class SavedScheduleSort
+        {
+            public long ScheduleId { get; set; }
+            public List<SortItem> Items { get; set; }
+        }
+        
+        #endregion
+
+        private void AddSortLevel_Click(object sender, RoutedEventArgs e)
+        {
+            SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
+        }
+
 
         private bool _isSortDragging = false;
         private System.Windows.Point _sortDragStart;
@@ -1579,14 +1688,6 @@ namespace ProSchedules.UI
 
         #endregion
 
-        #region Cleanup / disposal
-
-        private void MainWindow_Closed(object sender, EventArgs e)
-        {
-            SaveWindowState();
-        }
-
-        #endregion
 
         #region Window Startup
 
