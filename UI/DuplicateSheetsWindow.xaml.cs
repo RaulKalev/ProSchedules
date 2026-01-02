@@ -810,6 +810,14 @@ namespace ProSchedules.UI
         {
             try
             {
+                // 1. Commit current schedule settings to dictionary before saving
+                if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
+                {
+                    var list = new ObservableCollection<SortItem>();
+                    foreach(var item in SortCriteria) list.Add(item.Clone());
+                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = list;
+                }
+
                 var dtos = new List<SavedScheduleSort>();
                 foreach(var kvp in _scheduleSortSettings)
                 {
