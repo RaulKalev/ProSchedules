@@ -830,7 +830,7 @@ namespace ProSchedules.UI
                     });
                 }
 
-                string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProSchedules");
+                string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules");
                 if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
 
                 string file = System.IO.Path.Combine(folder, "sort_settings.json");
@@ -847,7 +847,7 @@ namespace ProSchedules.UI
         {
             try
             {
-                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProSchedules", "sort_settings.json");
+                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules", "sort_settings.json");
                 if (System.IO.File.Exists(file))
                 {
                     string json = System.IO.File.ReadAllText(file);
