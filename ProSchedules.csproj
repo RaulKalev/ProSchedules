@@ -87,6 +87,8 @@
 			<Generator>SettingsSingleFileGenerator</Generator>
 			<LastGenOutput>Settings.Designer.cs</LastGenOutput>
 		</None>
+        <EmbeddedResource Remove="Assets\ProSchedules.tiff" />
+        <Resource Include="Assets\ProSchedules.tiff" />
 	</ItemGroup>
 
 	<ItemGroup>

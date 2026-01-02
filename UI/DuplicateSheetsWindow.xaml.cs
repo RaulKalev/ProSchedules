@@ -241,8 +241,55 @@ namespace ProSchedules.UI
                 if (_scheduleSortSettings.ContainsKey(selectedItem.Id))
                 {
                     foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item.Clone());
-                    // Auto-apply immediately loading
-                    ApplyCurrentSortLogic();
+                }
+
+                // Restore Itemize Setting
+                bool itemize = true;
+                if (_scheduleItemizeSettings.ContainsKey(selectedItem.Id))
+                {
+                    itemize = _scheduleItemizeSettings[selectedItem.Id];
+                }
+                else
+                {
+                     _scheduleItemizeSettings[selectedItem.Id] = true; // Default
+                }
+                
+                // Set CheckBox (this triggers checked/unchecked events which call RefreshScheduleView)
+                // We need to avoid double refresh if possible, but simplest is to just set it.
+                // However, the event handler calls ApplyCurrentSortLogic? No, we added that.
+                
+                // Temporarily detach events if we want to manually control flow, or just let it trigger.
+                // Let's just set IsChecked. The event handler calls RefreshScheduleView(itemize) AND ApplyCurrentSortLogic().
+                // This is exactly what we want.
+                
+                if (ItemizeCheckBox != null)
+                {
+                    ItemizeCheckBox.IsChecked = itemize;
+                }
+                
+                // If the check state didn't change (already matched), the event won't fire.
+                // In that case we must ensure data is loaded.
+                // LoadScheduleData does NOT refresh the view passed the initial setup.
+                
+                // Force apply if event didn't trigger?
+                // Actually, LoadScheduleData populates _rawScheduleData.
+                // We need to call RefreshScheduleView at least once.
+                
+                // Let's force it manually if we suspect it might not trigger.
+                // But changing source calls LoadScheduleData first. 
+                
+                // Better approach: 
+                // 1. Set check box (might fire event)
+                // 2. Ensure ApplyCurrentSortLogic works.
+                
+                // If I set IsChecked = itemize, and it was already itemize, no event fires.
+                // We need to force refresh then.
+                
+                if (ItemizeCheckBox != null && ItemizeCheckBox.IsChecked == itemize)
+                {
+                   // Event won't fire, manually refresh
+                   RefreshScheduleView(itemize);
+                   ApplyCurrentSortLogic();
                 }
             }
             else
@@ -401,15 +448,17 @@ namespace ProSchedules.UI
                 var data = _revitService.GetScheduleData(schedule);
                 _currentScheduleData = data;
                 
+                if (data == null) throw new Exception("Failed to retrieve schedule data from Revit.");
+
                 if (!_scheduleItemizeSettings.ContainsKey(schedule.Id))
                 {
                     _scheduleItemizeSettings[schedule.Id] = true;
                 }
                 bool isItemized = _scheduleItemizeSettings[schedule.Id];
                 
-                ItemizeCheckBox.IsChecked = isItemized;
-                ItemizeCheckBox.Visibility = System.Windows.Visibility.Visible;
-
+                // Removed UI checkbox update from here to prevent premature event firing.
+                // It is now handled in SelectionChanged after SortCriteria is restored.
+                
                 var dt = new System.Data.DataTable();
                 dt.Columns.Add("IsSelected", typeof(bool)).DefaultValue = false;
                 dt.Columns.Add("RowState", typeof(string)).DefaultValue = "Unchanged";
@@ -482,7 +531,7 @@ namespace ProSchedules.UI
                 }
                 
                 _rawScheduleData = dt;
-                RefreshScheduleView(isItemized);
+                // RefreshScheduleView(isItemized); <-- Removed to prevent refresh with stale SortCriteria
             }
             catch (Exception ex)
             {
@@ -847,10 +896,15 @@ namespace ProSchedules.UI
                 {
                     // Use robust ID extraction (Value or IntegerValue)
                     long idVal = GetIdValue(kvp.Key);
+                    
+                    bool itemize = true;
+                    if (_scheduleItemizeSettings.ContainsKey(kvp.Key)) itemize = _scheduleItemizeSettings[kvp.Key];
+                    
                     dtos.Add(new SavedScheduleSort 
                     { 
                         ScheduleId = idVal, 
-                        Items = kvp.Value.ToList() 
+                        Items = kvp.Value.ToList(),
+                        ItemizeEveryInstance = itemize
                     });
                 }
 
@@ -899,6 +953,10 @@ namespace ProSchedules.UI
                             #endif
                             
                             _scheduleSortSettings[eid] = new ObservableCollection<SortItem>(dto.Items);
+                            
+                            // Load itemize setting (default true)
+                            _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
+                            _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
                         }
                     }
                 }
@@ -922,6 +980,7 @@ namespace ProSchedules.UI
         {
             public long ScheduleId { get; set; }
             public List<SortItem> Items { get; set; }
+            public bool ItemizeEveryInstance { get; set; } = true;
         }
         
         #endregion

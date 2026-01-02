@@ -30,7 +30,7 @@ namespace ProSchedules
 
             // Create PushButton with embedded resource
             var duplicateSheetsButton = ribbonPanel.CreatePushButton<ProSheetsCommand>()
-                .SetLargeImage("Assets/ProSchedules.tiff")
+                .SetLargeImage("pack://application:,,,/ProSchedules;component/Assets/ProSchedules.tiff")
                 .SetText("Pro\r\nSchedules")
                 .SetToolTip("Manage sheet duplication and batch renaming.")
                 .SetLongDescription("Duplicate sheets in bulk, rename with find/replace, prefixes/suffixes, and preview changes before applying.")

@@ -433,11 +433,14 @@
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left">
 
-                            <Button Content="Rename"
+                            <Button x:Name="RenameButton"
                                     Click="Rename_Click"
                                     Style="{StaticResource CustomActionButtonStyle}"
-                                    Width="100" Height="32" FontSize="12" FontWeight="Bold"
-                                    Margin="0,0,6,0"/>
+                                    ToolTip="Batch Rename"
+                                    Width="32" Height="32"
+                                    Margin="0,0,6,0">
+                                <materialDesign:PackIcon Kind="RenameBox" Width="20" Height="20"/>
+                            </Button>
 
                             <Button Content="Parameters"
                                     Click="Parameters_Click"
@@ -453,11 +456,14 @@
                                 <materialDesign:PackIcon Kind="Delete" Width="20" Height="20"/>
                             </Button>
 
-                            <Button Content="Sort"
+                            <Button x:Name="SortButton"
                                     Click="Sort_Click"
                                     Style="{StaticResource CustomActionButtonStyle}"
-                                    Width="80" Height="32" FontSize="12" FontWeight="Bold"
-                                    Margin="0,0,6,0"/>
+                                    ToolTip="Sort Settings"
+                                    Width="32" Height="32"
+                                    Margin="0,0,6,0">
+                                <materialDesign:PackIcon Kind="Sort" Width="20" Height="20"/>
+                            </Button>
                         </StackPanel>
 
                         <!-- Schedule Select and Itemize -->
