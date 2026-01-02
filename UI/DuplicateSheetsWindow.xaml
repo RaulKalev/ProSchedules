@@ -264,6 +264,7 @@
                     Loaded="TitleBar_Loaded" />
         <!-- Sorting Popup Overlay -->
         <Grid x:Name="SortPopupOverlay" Visibility="Collapsed" Background="Transparent"
+              Grid.Row="0" Grid.RowSpan="3" Panel.ZIndex="100"
               MouseDown="OptionsPopupBackground_Click">
              <Border Background="#1E1E1E" 
                     BorderBrush="#333333" 
