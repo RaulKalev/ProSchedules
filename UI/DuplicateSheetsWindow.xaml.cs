@@ -117,8 +117,7 @@ namespace ProSchedules.UI
         public ObservableCollection<SortItem> SortCriteria { get; set; } = new ObservableCollection<SortItem>();
         public ObservableCollection<string> AvailableSortColumns { get; set; } = new ObservableCollection<string>();
 
-        private Commands.ParameterUpdateHandler _paramHandler;
-        private ExternalEvent _paramExternalEvent;
+
         private ProSchedules.Models.ScheduleData _currentScheduleData;
         private Dictionary<ElementId, bool> _scheduleItemizeSettings = new Dictionary<ElementId, bool>();
         private System.Data.DataTable _rawScheduleData;
@@ -963,17 +962,11 @@ namespace ProSchedules.UI
                             // Or just use the constructor that accepts long?
                             // Warnings earlier said ElementId(int) is deprecated, use ElementId(long).
                             
-                            ElementId eid;
-                            #if NET8_0_OR_GREATER
-                                eid = new ElementId((long)dto.ScheduleId);
-                            #else
-                                eid = new ElementId((int)dto.ScheduleId);
-                            #endif
+                            ElementId eid = new ElementId((long)dto.ScheduleId);
                             
                             _scheduleSortSettings[eid] = new ObservableCollection<SortItem>(dto.Items);
                             
                             // Load itemize setting (default true)
-                            _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
                             _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
                         }
                     }
@@ -987,11 +980,7 @@ namespace ProSchedules.UI
 
         private long GetIdValue(ElementId id)
         {
-            #if NET8_0_OR_GREATER
-                return id.Value;
-            #else
-                return id.IntegerValue;
-            #endif
+            return id.Value;
         }
         
         public class SavedScheduleSort

@@ -34,13 +34,8 @@ namespace ProSchedules.Commands
 
                         // Parse ElementId
                         ElementId id = ElementId.InvalidElementId;
-#if NET8_0_OR_GREATER
                         if (long.TryParse(idStr, out long idVal))
                             id = new ElementId(idVal);
-#else
-                        if (int.TryParse(idStr, out int idVal))
-                            id = new ElementId(idVal);
-#endif
 
                         if (id == ElementId.InvalidElementId) continue;
 

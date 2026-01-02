@@ -80,11 +80,7 @@ namespace ProSchedules.Services
             foreach (Element el in elements)
             {
                 var rowData = new List<string>();
-#if NET8_0_OR_GREATER
                 rowData.Add(el.Id.Value.ToString());
-#else
-                rowData.Add(el.Id.IntegerValue.ToString());
-#endif
                 
                 ElementId typeId = el.GetTypeId();
                 string typeName = "";
@@ -132,15 +128,11 @@ namespace ProSchedules.Services
             Parameter p = null;
             bool isType = false;
             
-#if NET8_0_OR_GREATER
             long idValue = parameterId.Value;
-#else
-            int idValue = parameterId.IntegerValue;
-#endif
 
             if (idValue < 0)
             {
-                p = el.get_Parameter((BuiltInParameter)idValue);
+                p = el.get_Parameter((BuiltInParameter)(int)idValue);
             }
             else
             {
@@ -164,7 +156,7 @@ namespace ProSchedules.Services
                     if (typeElem != null)
                     {
                          if (idValue < 0)
-                            p = typeElem.get_Parameter((BuiltInParameter)idValue);
+                            p = typeElem.get_Parameter((BuiltInParameter)(int)idValue);
                          else
                          {
                              var paramElem = _doc.GetElement(parameterId);
