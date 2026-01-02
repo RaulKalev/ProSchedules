@@ -715,10 +715,16 @@
                                           SelectedIndex="0"
                                           Margin="0,0,0,10"
                                           SelectionChanged="RenameParameter_Changed"
-                                          Style="{StaticResource DarkThemeComboBox}">
-                                    <ComboBoxItem Content="Sheet Number"/>
-                                    <ComboBoxItem Content="Sheet Name"/>
+                                          Style="{StaticResource DarkThemeComboBox}"
+                                          ItemsSource="{Binding RenameParameterOptions}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name}"/>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
                                 </ComboBox>
+
+
 
                                 <!-- Find -->
                                 <TextBlock Grid.Row="1" Grid.Column="0"

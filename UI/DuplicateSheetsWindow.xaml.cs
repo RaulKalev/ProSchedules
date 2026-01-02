@@ -75,6 +75,16 @@ namespace ProSchedules.UI
         }
     }
 
+    /// <summary>
+    /// Represents an option in the Rename Parameter dropdown.
+    /// </summary>
+    public class RenameParameterOption
+    {
+        public string Name { get; set; }
+        public bool IsTypeParameter { get; set; }
+        public bool IsSheetParameter { get; set; } // True for Sheet Number/Sheet Name
+    }
+
     public partial class DuplicateSheetsWindow : Window
     {
         #region Constants / PInvoke
@@ -110,18 +120,24 @@ namespace ProSchedules.UI
         private bool _isDataLoaded;
         private UIApplication _uiApplication;
         private RevitService _revitService;
+        private ExternalEvent _parameterRenameExternalEvent;
+        private ExternalEvents.ParameterRenameHandler _parameterRenameHandler;
 
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<RenamePreviewItem> RenamePreviewItems { get; set; } = new ObservableCollection<RenamePreviewItem>();
         public ObservableCollection<SortItem> SortCriteria { get; set; } = new ObservableCollection<SortItem>();
         public ObservableCollection<string> AvailableSortColumns { get; set; } = new ObservableCollection<string>();
-
+        public ObservableCollection<ScheduleRenameItem> ScheduleRenamePreviewItems { get; set; } = new ObservableCollection<ScheduleRenameItem>();
+        public ObservableCollection<RenameParameterOption> RenameParameterOptions { get; set; } = new ObservableCollection<RenameParameterOption>();
 
         private ProSchedules.Models.ScheduleData _currentScheduleData;
         private Dictionary<ElementId, bool> _scheduleItemizeSettings = new Dictionary<ElementId, bool>();
         private System.Data.DataTable _rawScheduleData;
         private Dictionary<ElementId, ObservableCollection<SortItem>> _scheduleSortSettings = new Dictionary<ElementId, ObservableCollection<SortItem>>();
+        private string _lastSelectedScheduleName;
+
+
 
         #endregion
 
@@ -148,6 +164,12 @@ namespace ProSchedules.UI
             _deleteHandler.OnDeleteFinished += OnDeleteFinished;
             _deleteExternalEvent = ExternalEvent.Create(_deleteHandler);
 
+            // Create parameter rename handler
+            _parameterRenameHandler = new ExternalEvents.ParameterRenameHandler();
+            _parameterRenameHandler.OnRenameFinished += OnParameterRenameFinished;
+            _parameterRenameExternalEvent = ExternalEvent.Create(_parameterRenameHandler);
+
+
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             DeferWindowShow();
 
@@ -164,11 +186,12 @@ namespace ProSchedules.UI
             LoadWindowState();
             DataContext = this;
 
-            LoadData(app.ActiveUIDocument.Document);
-            
-            // Load persistent settings
+            // Load persistent settings (must be before LoadData so they're available when schedule is restored)
             LoadSortSettings();
+            
+            LoadData(app.ActiveUIDocument.Document);
         }
+
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
@@ -206,13 +229,31 @@ namespace ProSchedules.UI
             // Load Schedules
             var schedules = _revitService.GetSchedules();
             var comboItems = new List<ScheduleOption>();
-            comboItems.Add(new ScheduleOption { Name = "All Sheets (Default)", Id = ElementId.InvalidElementId, Schedule = null });
+            comboItems.Add(new ScheduleOption { Name = "No Schedules Selected", Id = ElementId.InvalidElementId, Schedule = null });
             foreach(var s in schedules)
             {
                 comboItems.Add(new ScheduleOption { Name = s.Name, Id = s.Id, Schedule = s });
             }
             SchedulesComboBox.ItemsSource = comboItems;
-            SchedulesComboBox.SelectedIndex = 0;
+            
+            // Try to restore last selected schedule from config
+            string savedScheduleName = GetSavedScheduleName();
+            if (!string.IsNullOrEmpty(savedScheduleName))
+            {
+                var savedItem = comboItems.FirstOrDefault(x => x.Name == savedScheduleName);
+                if (savedItem != null)
+                {
+                    SchedulesComboBox.SelectedItem = savedItem;
+                }
+                else
+                {
+                    SchedulesComboBox.SelectedIndex = 0;
+                }
+            }
+            else
+            {
+                SchedulesComboBox.SelectedIndex = 0;
+            }
 
             UpdateButtonStates();
             _isDataLoaded = true;
@@ -222,6 +263,12 @@ namespace ProSchedules.UI
         private void SchedulesComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            
+            // Save selected schedule name for persistence
+            if (selectedItem != null)
+            {
+                SaveScheduleName(selectedItem.Name);
+            }
             
             if (selectedItem != null && selectedItem.Schedule != null)
             {
@@ -293,8 +340,14 @@ namespace ProSchedules.UI
             }
             else
             {
-                RestoreSheetView();
+                // No schedule selected - show empty DataGrid
+                SheetsDataGrid.Columns.Clear();
+                SheetsDataGrid.ItemsSource = null;
+                _currentScheduleData = null;
+                AvailableSortColumns.Clear();
             }
+
+
         }
 
         private void RestoreSheetView()
@@ -354,9 +407,14 @@ namespace ProSchedules.UI
             checkBoxFactory.SetValue(CheckBox.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
             checkBoxFactory.SetValue(CheckBox.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
             checkBoxFactory.SetValue(CheckBox.StyleProperty, FindResource("CustomCheckBoxStyle"));
-            checkBoxFactory.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding("IsSelected") { Mode = System.Windows.Data.BindingMode.TwoWay });
+            checkBoxFactory.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding("IsSelected") 
+            { 
+                Mode = System.Windows.Data.BindingMode.TwoWay, 
+                UpdateSourceTrigger = System.Windows.Data.UpdateSourceTrigger.PropertyChanged 
+            });
             checkBoxFactory.AddHandler(CheckBox.ClickEvent, new RoutedEventHandler(RowCheckBox_Click));
             cellTemplate.VisualTree = checkBoxFactory;
+
 
             var col = new DataGridTemplateColumn
             {
@@ -463,6 +521,9 @@ namespace ProSchedules.UI
                 dt.Columns.Add("RowState", typeof(string)).DefaultValue = "Unchanged";
                 dt.Columns.Add("Count", typeof(int));
 
+                AvailableSortColumns.Clear();
+                AvailableSortColumns.Add("(none)");
+
                 // Detect column types
                 for(int i = 0; i < data.Columns.Count; i++)
                 {
@@ -472,6 +533,9 @@ namespace ProSchedules.UI
                     {
                         safeName = $"{data.Columns[i]} ({dupIdx++})";
                     }
+
+                    AvailableSortColumns.Add(safeName);
+
 
                     // Check if column is numeric
                     bool isNumeric = true;
@@ -1293,36 +1357,104 @@ namespace ProSchedules.UI
             DiscardButton.IsEnabled = pendingCount > 0;
         }
 
+        private RenameWindow _renameWindow;
+
         private void Rename_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // Get selected sheets
-                var selectedSheets = Sheets.Where(x => x.IsSelected).ToList();
-                if (selectedSheets.Count == 0)
+                // Determine if we're working with schedule data or sheets
+                var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                bool isScheduleMode = selectedItem != null && selectedItem.Schedule != null && _currentScheduleData != null;
+
+                if (isScheduleMode)
                 {
-                    ShowPopup("No Sheets Selected", "Please select at least one sheet to rename.");
-                    return;
+                    // Get selected rows from schedule DataView
+                    var view = SheetsDataGrid.ItemsSource as System.Data.DataView;
+                    if (view == null)
+                    {
+                        ShowPopup("Error", "No schedule data available.");
+                        return;
+                    }
+
+                    var selectedRows = new List<System.Data.DataRowView>();
+                    foreach (System.Data.DataRowView row in view)
+                    {
+                        var isSelectedValue = row["IsSelected"];
+                        bool isSelected = false;
+                        
+                        if (isSelectedValue is bool b)
+                        {
+                            isSelected = b;
+                        }
+                        else if (isSelectedValue != null && isSelectedValue != DBNull.Value)
+                        {
+                            isSelected = Convert.ToBoolean(isSelectedValue);
+                        }
+                        
+                        if (isSelected)
+                        {
+                            selectedRows.Add(row);
+                        }
+                    }
+
+                    if (selectedRows.Count == 0)
+                    {
+                        ShowPopup("No Rows Selected", "Please tick at least one row to rename.");
+                        return;
+                    }
+
+                    // Open RenameWindow in schedule mode
+                    _renameWindow = new RenameWindow(this, selectedRows, _currentScheduleData);
+                    _renameWindow.OnScheduleRenameApply += OnScheduleRenameApply;
+                    _renameWindow.ShowDialog();
                 }
+                else
+                {
+                    // Sheet mode
+                    var selectedSheets = Sheets.Where(x => x.IsSelected).ToList();
+                    if (selectedSheets.Count == 0)
+                    {
+                        ShowPopup("No Sheets Selected", "Please select at least one sheet to rename.");
+                        return;
+                    }
 
-                // Reset rename controls
-                RenameParameter.SelectedIndex = 0;
-                RenameFindText.Clear();
-                RenameReplaceText.Clear();
-                RenamePrefixText.Clear();
-                RenameSuffixText.Clear();
-
-                // Populate preview
-                UpdateRenamePreview();
-
-                // Show popup
-                RenamePopupOverlay.Visibility = System.Windows.Visibility.Visible;
+                    // Open RenameWindow in sheet mode
+                    _renameWindow = new RenameWindow(this, selectedSheets);
+                    _renameWindow.OnSheetRenameApply += OnSheetRenameApply;
+                    _renameWindow.ShowDialog();
+                }
             }
             catch (Exception ex)
             {
                 ShowPopup("Error", ex.Message);
             }
         }
+
+        private void OnScheduleRenameApply(List<ScheduleRenameItem> items)
+        {
+            _parameterRenameHandler.RenameItems = items;
+            _parameterRenameExternalEvent.Raise();
+        }
+
+        private void OnSheetRenameApply(List<RenamePreviewItem> items, string parameterName)
+        {
+            bool isSheetNumber = parameterName == "Sheet Number";
+
+            foreach (var item in items)
+            {
+                if (isSheetNumber)
+                {
+                    item.Sheet.SheetNumber = item.New;
+                }
+                else
+                {
+                    item.Sheet.Name = item.New;
+                }
+            }
+        }
+
+
 
         private void RenameParameter_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
@@ -1340,39 +1472,24 @@ namespace ProSchedules.UI
             {
                 RenamePreviewItems.Clear();
 
-                var selectedSheets = Sheets.Where(x => x.IsSelected).ToList();
-                if (selectedSheets.Count == 0) return;
-
-                // Determine which parameter to rename
-                bool isSheetNumber = RenameParameter?.SelectedIndex == 0;
-
                 string findText = RenameFindText?.Text ?? "";
                 string replaceText = RenameReplaceText?.Text ?? "";
                 string prefix = RenamePrefixText?.Text ?? "";
                 string suffix = RenameSuffixText?.Text ?? "";
 
+                var selectedOption = RenameParameter?.SelectedItem as RenameParameterOption;
+                if (selectedOption == null) return;
+
+                // This popup is only used for sheet mode now (schedule mode uses RenameWindow)
+                var selectedSheets = Sheets.Where(x => x.IsSelected).ToList();
+                if (selectedSheets.Count == 0) return;
+
+                bool isSheetNumber = selectedOption.Name == "Sheet Number";
+
                 foreach (var sheet in selectedSheets)
                 {
                     string original = isSheetNumber ? sheet.SheetNumber : sheet.Name;
-                    string newValue = original;
-
-                    // Apply find/replace
-                    if (!string.IsNullOrEmpty(findText))
-                    {
-                        newValue = newValue.Replace(findText, replaceText);
-                    }
-
-                    // Apply prefix
-                    if (!string.IsNullOrEmpty(prefix))
-                    {
-                        newValue = prefix + newValue;
-                    }
-
-                    // Apply suffix
-                    if (!string.IsNullOrEmpty(suffix))
-                    {
-                        newValue = newValue + suffix;
-                    }
+                    string newValue = ApplyRenameTransform(original, findText, replaceText, prefix, suffix);
 
                     var previewItem = new RenamePreviewItem(sheet, original)
                     {
@@ -1381,6 +1498,8 @@ namespace ProSchedules.UI
 
                     RenamePreviewItems.Add(previewItem);
                 }
+
+                RenamePreviewDataGrid.ItemsSource = RenamePreviewItems;
             }
             catch (Exception ex)
             {
@@ -1388,13 +1507,45 @@ namespace ProSchedules.UI
             }
         }
 
+
+        /// <summary>
+        /// Applies find/replace, prefix, and suffix transformations to a value.
+        /// </summary>
+        private string ApplyRenameTransform(string original, string find, string replace, string prefix, string suffix)
+        {
+            string newValue = original ?? "";
+
+            // Apply find/replace
+            if (!string.IsNullOrEmpty(find))
+            {
+                newValue = newValue.Replace(find, replace);
+            }
+
+            // Apply prefix
+            if (!string.IsNullOrEmpty(prefix))
+            {
+                newValue = prefix + newValue;
+            }
+
+            // Apply suffix
+            if (!string.IsNullOrEmpty(suffix))
+            {
+                newValue = newValue + suffix;
+            }
+
+            return newValue;
+        }
+
+
         private void RenameApply_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                bool isSheetNumber = RenameParameter.SelectedIndex == 0;
+                var selectedOption = RenameParameter?.SelectedItem as RenameParameterOption;
 
-                // Apply changes to the main DataGrid
+                // This popup is only used for sheet mode now (schedule mode uses RenameWindow)
+                bool isSheetNumber = selectedOption?.Name == "Sheet Number";
+
                 foreach (var previewItem in RenamePreviewItems)
                 {
                     if (previewItem.Original != previewItem.New)
@@ -1418,6 +1569,53 @@ namespace ProSchedules.UI
                 ShowPopup("Error", ex.Message);
             }
         }
+
+
+        /// <summary>
+        /// Executes the schedule parameter rename via ExternalEvent.
+        /// </summary>
+        private void ExecuteScheduleRename(List<ScheduleRenameItem> items)
+        {
+            _parameterRenameHandler.RenameItems = items;
+            _parameterRenameExternalEvent.Raise();
+            RenamePopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// Callback when the parameter rename operation completes.
+        /// </summary>
+        private void OnParameterRenameFinished(int success, int fail, string errorMsg)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Reload schedule data to show updated values
+                var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                if (selectedItem?.Schedule != null)
+                {
+                    LoadScheduleData(selectedItem.Schedule);
+
+                    // Restore itemize setting and refresh view
+                    bool itemize = true;
+                    if (_scheduleItemizeSettings.ContainsKey(selectedItem.Id))
+                    {
+                        itemize = _scheduleItemizeSettings[selectedItem.Id];
+                    }
+                    RefreshScheduleView(itemize);
+                    ApplyCurrentSortLogic();
+                }
+
+                // Show result
+                if (fail > 0)
+                {
+                    ShowPopup("Rename Report", $"Success: {success}\nFailures: {fail}\nError: {errorMsg}");
+                }
+                else if (success > 0)
+                {
+                    ShowPopup("Success", $"Successfully renamed {success} parameter value(s).");
+                }
+            });
+        }
+
 
         private void RenameCancel_Click(object sender, RoutedEventArgs e)
         {
@@ -1746,13 +1944,15 @@ namespace ProSchedules.UI
         {
         }
 
-        private void ShowConfirmPopup(string title, string message, Action onConfirmAction)
+        private void ShowConfirmPopup(string title, string message, Action onConfirmAction, string confirmButtonText = "Discard")
         {
             ConfirmPopupTitle.Text = title;
             ConfirmPopupMessage.Text = message;
             _onConfirmAction = onConfirmAction;
+            ConfirmActionButton.Content = confirmButtonText;
             ConfirmPopupOverlay.Visibility = System.Windows.Visibility.Visible;
         }
+
 
         private void CloseConfirmPopup()
         {
@@ -1993,6 +2193,48 @@ namespace ProSchedules.UI
             return false;
         }
 
+        private void SaveScheduleName(string scheduleName)
+        {
+            try
+            {
+                string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules");
+                if (!System.IO.Directory.Exists(dir))
+                {
+                    System.IO.Directory.CreateDirectory(dir);
+                }
+                
+                string file = System.IO.Path.Combine(dir, "last_schedule.txt");
+                System.IO.File.WriteAllText(file, scheduleName ?? "");
+                _lastSelectedScheduleName = scheduleName;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving schedule name: {ex.Message}");
+            }
+        }
+
+        private string GetSavedScheduleName()
+        {
+            try
+            {
+                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules", "last_schedule.txt");
+                if (System.IO.File.Exists(file))
+                {
+                    string scheduleName = System.IO.File.ReadAllText(file);
+                    _lastSelectedScheduleName = scheduleName;
+                    return scheduleName;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading schedule name: {ex.Message}");
+            }
+            
+            return null;
+        }
+
+
         #endregion
+
     }
 }

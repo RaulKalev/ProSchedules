@@ -75,4 +75,4 @@ dotnet build ProSchedules.csproj -f net8.0-windows # Revit 2026
 - **Costura.Fody**: DLL embedding for single-file distribution.
 
 ---
-*Developed by Antigravity*
+
