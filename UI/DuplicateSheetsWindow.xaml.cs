@@ -404,15 +404,39 @@ namespace ProSchedules.UI
                 dt.Columns.Add("RowState", typeof(string)).DefaultValue = "Unchanged";
                 dt.Columns.Add("Count", typeof(int));
 
-                foreach(var colName in data.Columns)
+                // Detect column types
+                for(int i = 0; i < data.Columns.Count; i++)
                 {
-                    string safeName = colName;
-                    int i = 1;
+                    string safeName = data.Columns[i];
+                    int dupIdx = 1;
                     while(dt.Columns.Contains(safeName))
                     {
-                        safeName = $"{colName} ({i++})";
+                        safeName = $"{data.Columns[i]} ({dupIdx++})";
                     }
-                    dt.Columns.Add(safeName);
+
+                    // Check if column is numeric
+                    bool isNumeric = true;
+                    bool hasValue = false;
+                    foreach(var r in data.Rows)
+                    {
+                        string val = r[i];
+                        if (string.IsNullOrWhiteSpace(val)) continue;
+                        hasValue = true;
+                        if (!double.TryParse(val, out _))
+                        {
+                            isNumeric = false;
+                            break;
+                        }
+                    }
+
+                    if (isNumeric && hasValue)
+                    {
+                        dt.Columns.Add(safeName, typeof(double));
+                    }
+                    else
+                    {
+                        dt.Columns.Add(safeName, typeof(string));
+                    }
                 }
                 
                 foreach(var row in data.Rows)
@@ -424,7 +448,23 @@ namespace ProSchedules.UI
                     
                     for(int i = 0; i < data.Columns.Count; i++)
                     {
-                        newRow[i + 3] = row[i];
+                        string val = row[i];
+                        // If column is numeric, parse it
+                        if (dt.Columns[i + 3].DataType == typeof(double))
+                        {
+                            if (double.TryParse(val, out double dVal))
+                            {
+                                newRow[i + 3] = dVal;
+                            }
+                            else
+                            {
+                                newRow[i + 3] = DBNull.Value;
+                            }
+                        }
+                        else
+                        {
+                            newRow[i + 3] = val;
+                        }
                     }
                     
                     dt.Rows.Add(newRow);
