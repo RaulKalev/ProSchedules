@@ -506,10 +506,10 @@
                                                        Foreground="{DynamicResource IconBrush}"/>
 
                                 <TextBlock Grid.Column="1"
-                                          Text="Search sheets..."
+                                          Text="Search"
                                           Foreground="#FF808080"
                                           VerticalAlignment="Center"
-                                          Margin="2,0,0,0"
+                                          Margin="10,0,0,0"
                                           IsHitTestVisible="False">
                                     <TextBlock.Style>
                                         <Style TargetType="TextBlock">

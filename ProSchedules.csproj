@@ -70,12 +70,6 @@
     </Reference>
   </ItemGroup>
 	
-	<ItemGroup>
-		<Resource Include="Assets\ProSchedules.tiff">
-			<CopyToOutputDirectory>Never</CopyToOutputDirectory>
-		</Resource>
-
-	</ItemGroup>
 
 	<ItemGroup>
 		<Compile Update="CustomTitleBar.xaml.cs">

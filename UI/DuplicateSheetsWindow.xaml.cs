@@ -497,8 +497,20 @@ namespace ProSchedules.UI
             if (!itemize && viewTable != null)
             {
                 viewTable = viewTable.Clone();
+                // Group by sorting rules
+                var validSorts = SortCriteria.Where(s => s.SelectedColumn != "(none)" && !string.IsNullOrEmpty(s.SelectedColumn))
+                                             .Select(s => s.SelectedColumn)
+                                             .ToList();
+
                 var grouped = _rawScheduleData.AsEnumerable()
-                    .GroupBy(r => r["TypeName"]?.ToString() ?? "");
+                    .GroupBy(r => 
+                    {
+                        if (validSorts.Count == 0) return ""; // Group all if no sort
+                        
+                        // Create composite key
+                        return string.Join("||", validSorts.Select(col => 
+                            r.Table.Columns.Contains(col) ? r[col]?.ToString() ?? "" : ""));
+                    });
                 
                 foreach(var grp in grouped)
                 {
@@ -572,6 +584,7 @@ namespace ProSchedules.UI
             {
                 _scheduleItemizeSettings[selectedItem.Id] = true;
                 RefreshScheduleView(true);
+                ApplyCurrentSortLogic();
             }
         }
 
@@ -581,7 +594,9 @@ namespace ProSchedules.UI
             if (selectedItem != null && selectedItem.Schedule != null)
             {
                 _scheduleItemizeSettings[selectedItem.Id] = false;
-                RefreshScheduleView(false);
+                // Calling ApplyCurrentSortLogic will see the 'false' setting and trigger RefreshScheduleView(false) internally
+                // Then it will proceed to apply SortDescriptions.
+                ApplyCurrentSortLogic();
             }
         }
 
@@ -776,6 +791,15 @@ namespace ProSchedules.UI
         private void ApplyCurrentSortLogic()
         {
             if (SheetsDataGrid.ItemsSource == null) return;
+
+            // Check if we are in non-itemized mode (grouped)
+            // If so, we must REFRESH the view to regroup based on new sort criteria
+            if (_currentScheduleData != null && 
+                _scheduleItemizeSettings.ContainsKey(_currentScheduleData.ScheduleId) && 
+                _scheduleItemizeSettings[_currentScheduleData.ScheduleId] == false)
+            {
+                RefreshScheduleView(false);
+            }
             
             System.ComponentModel.ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
             view.SortDescriptions.Clear();
@@ -975,7 +999,20 @@ namespace ProSchedules.UI
                     return;
                 }
 
-                obj = VisualTreeHelper.GetParent(obj);
+                if (obj is System.Windows.ContentElement contentElement)
+                {
+                    obj = System.Windows.LogicalTreeHelper.GetParent(contentElement);
+                    continue; // Skip rest of loop for this iteration
+                }
+
+                if (obj is System.Windows.Media.Visual || obj is System.Windows.Media.Media3D.Visual3D)
+                {
+                    obj = VisualTreeHelper.GetParent(obj);
+                }
+                else
+                {
+                    obj = null; // Stop traversal if not a visual
+                }
             }
 
             // If we are here, we clicked empty space (background, borders, etc.) -> Deselect All
