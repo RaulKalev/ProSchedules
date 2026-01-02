@@ -46,7 +46,7 @@ namespace ProSchedules.ExternalEvents
                 return;
             }
 
-            using (Transaction t = new Transaction(doc, "Duplicate Sheets"))
+            using (Transaction t = new Transaction(doc, "Pro Schedules"))
             {
                 t.Start();
 

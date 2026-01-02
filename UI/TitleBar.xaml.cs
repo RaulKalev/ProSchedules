@@ -21,6 +21,15 @@ namespace ProSchedules.UI
             InitializeComponent();
         }
 
+        public static readonly DependencyProperty IsMinimizeVisibleProperty =
+            DependencyProperty.Register("IsMinimizeVisible", typeof(bool), typeof(TitleBar), new PropertyMetadata(true));
+
+        public bool IsMinimizeVisible
+        {
+            get { return (bool)GetValue(IsMinimizeVisibleProperty); }
+            set { SetValue(IsMinimizeVisibleProperty, value); }
+        }
+
         private void TitleBar_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed)

@@ -792,49 +792,57 @@ namespace ProSchedules.UI
             }
         }
 
+        private SortingWindow _sortingWindow;
+
         private void Sort_Click(object sender, RoutedEventArgs e)
         {
-            // Protect current criteria from corruption during column clear
-            var backup = new List<SortItem>();
-            foreach(var item in SortCriteria) backup.Add(item);
-            SortCriteria.Clear();
+            PrepareSortData();
 
-            // Always refresh available columns from current DataGrid state
-            AvailableSortColumns.Clear();
-            AvailableSortColumns.Add("(none)");
-            if (SheetsDataGrid.Columns.Count > 0)
+            if (_sortingWindow == null || !_sortingWindow.IsLoaded)
             {
-                foreach (var col in SheetsDataGrid.Columns)
-                {
-                    if (col.Header is string header && !string.IsNullOrEmpty(header) 
-                        && header != "Count" && header != "Sheet Number" && header != "Sheet Name") 
-                    {
-                         AvailableSortColumns.Add(header);
-                    }
-                     // Keep Sheet Number/Name if present
-                     else if (col.Header is string h3 && (h3 == "Sheet Number" || h3 == "Sheet Name"))
-                     {
-                         AvailableSortColumns.Add(h3);
-                     }
-                }
+                _sortingWindow = new SortingWindow(this);
+                _sortingWindow.Owner = this;
+                _sortingWindow.Show();
             }
-            
-            // Restore items
-            foreach(var item in backup) SortCriteria.Add(item);
-            
-            // Ensure at least one blank sort item if empty
+            else
+            {
+                _sortingWindow.Activate();
+                if (_sortingWindow.WindowState == WindowState.Minimized)
+                    _sortingWindow.WindowState = WindowState.Normal;
+            }
+        }
+
+        private void PrepareSortData()
+        {
+             AvailableSortColumns.Clear();
+             AvailableSortColumns.Add("(none)");
+             
+             if (SheetsDataGrid.Columns.Count > 0)
+             {
+                 foreach (var col in SheetsDataGrid.Columns)
+                 {
+                     if (col.Header is string header && !string.IsNullOrEmpty(header) 
+                         && header != "Count" && header != "Sheet Number" && header != "Sheet Name") 
+                     {
+                          AvailableSortColumns.Add(header);
+                     }
+                      else if (col.Header is string h3 && (h3 == "Sheet Number" || h3 == "Sheet Name"))
+                      {
+                          AvailableSortColumns.Add(h3);
+                      }
+                 }
+             }
+
+            // Ensure at least one blank sort item if empty (unless we are loading from settings which is done elsewhere)
             if (SortCriteria.Count == 0)
             {
                 SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
             }
-
-            SortPopupOverlay.Visibility = System.Windows.Visibility.Visible;
         }
 
-        private void SortApply_Click(object sender, RoutedEventArgs e)
+        internal void ApplyCurrentSortLogicInternal()
         {
             ApplyCurrentSortLogic();
-            SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
         }
 
         private void ApplyCurrentSortLogic()
@@ -872,10 +880,20 @@ namespace ProSchedules.UI
             }
         }
 
+/*
         private void SortCancel_Click(object sender, RoutedEventArgs e)
         {
+            // Revert changes (if any were made live without backup? No, we bound directly)
+            // Wait, if we bound directly, changes are LIVE.
+            // We need to restore backup.
+            
+            // But we didn't store backup in a field? We did in Sort_Click but it was local.
+            // Logic was flawed or reliant on local variable capture? No, WPF ensures modal? No, it was a Popup.
+            // Actually the original Sort_Click logic was weird, it cleared then added.
+            
             SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
         }
+*/
 
         #region Persistence
 
@@ -991,6 +1009,7 @@ namespace ProSchedules.UI
         }
 
 
+/*
         private bool _isSortDragging = false;
         private System.Windows.Point _sortDragStart;
 
@@ -1002,7 +1021,13 @@ namespace ProSchedules.UI
                 _isSortDragging = true;
                 _sortDragStart = e.GetPosition(this);
                 element.CaptureMouse();
+                e.Handled = true;
             }
+        }
+        
+        private void SortPopupBackground_Click(object sender, MouseButtonEventArgs e)
+        {
+            SortPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
         }
 
         private void SortHeader_MouseMove(object sender, MouseEventArgs e)
@@ -1030,14 +1055,9 @@ namespace ProSchedules.UI
                 (sender as IInputElement)?.ReleaseMouseCapture();
             }
         }
+*/
 
-        private void RemoveSortItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.DataContext is SortItem item)
-            {
-                SortCriteria.Remove(item);
-            }
-        }
+
 
         private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
