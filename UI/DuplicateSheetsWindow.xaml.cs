@@ -43,6 +43,18 @@ namespace ProSchedules.UI
         public bool ShowFooter { get; set; }
         public bool ShowBlankLine { get; set; }
 
+        public SortItem Clone()
+        {
+            return new SortItem
+            {
+                SelectedColumn = this.SelectedColumn,
+                IsAscending = this.IsAscending,
+                ShowHeader = this.ShowHeader,
+                ShowFooter = this.ShowFooter,
+                ShowBlankLine = this.ShowBlankLine
+            };
+        }
+
         public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
     }
@@ -207,21 +219,19 @@ namespace ProSchedules.UI
             {
                 if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
                 {
-                    // Save previous sorting
-                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = new ObservableCollection<SortItem>(SortCriteria);
+                    // Save previous sorting (Deep Copy)
+                    var list = new ObservableCollection<SortItem>();
+                    foreach(var item in SortCriteria) list.Add(item.Clone());
+                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = list;
                 }
 
                 LoadScheduleData(selectedItem.Schedule);
                 
-                // Load sorting if exists
+                // Load sorting if exists (Deep Copy Restore)
+                SortCriteria.Clear();
                 if (_scheduleSortSettings.ContainsKey(selectedItem.Id))
                 {
-                    SortCriteria.Clear();
-                    foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item);
-                }
-                else
-                {
-                    SortCriteria.Clear();
+                    foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item.Clone());
                 }
             }
             else
@@ -669,6 +679,11 @@ namespace ProSchedules.UI
 
         private void Sort_Click(object sender, RoutedEventArgs e)
         {
+            // Protect current criteria from corruption during column clear
+            var backup = new List<SortItem>();
+            foreach(var item in SortCriteria) backup.Add(item);
+            SortCriteria.Clear();
+
             // Always refresh available columns from current DataGrid state
             AvailableSortColumns.Clear();
             AvailableSortColumns.Add("(none)");
@@ -679,19 +694,18 @@ namespace ProSchedules.UI
                     if (col.Header is string header && !string.IsNullOrEmpty(header) 
                         && header != "Count" && header != "Sheet Number" && header != "Sheet Name") 
                     {
-                         // Optionally exclude standard fields if they are always there, 
-                         // or user wants to sort by parameters only? 
-                         // User said "parameters according to opened schedule". 
-                         // Sheet Number/Name are always there. I'll include them.
                          AvailableSortColumns.Add(header);
                     }
-                     // Actually, just add everything except Count/CheckBox
+                     // Keep Sheet Number/Name if present
                      else if (col.Header is string h3 && (h3 == "Sheet Number" || h3 == "Sheet Name"))
                      {
                          AvailableSortColumns.Add(h3);
                      }
                 }
             }
+            
+            // Restore items
+            foreach(var item in backup) SortCriteria.Add(item);
             
             // Ensure at least one blank sort item if empty
             if (SortCriteria.Count == 0)
