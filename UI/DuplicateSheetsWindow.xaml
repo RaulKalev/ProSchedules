@@ -85,6 +85,143 @@
                     </Setter.Value>
                 </Setter>
             </Style>
+
+            <!-- Dark Theme ComboBox -->
+            <Style x:Key="DarkComboBoxStyle" TargetType="{x:Type ComboBox}">
+                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ComboBox}">
+                            <Grid>
+                                <ToggleButton x:Name="ToggleButton"
+                                              Grid.Column="0"
+                                              Background="Transparent"
+                                              BorderThickness="0"
+                                              Focusable="False"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                              ClickMode="Press">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="Border"
+                                                    Background="{DynamicResource SecondaryBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="4">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <ContentPresenter Grid.Column="0"
+                                                                      Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                      ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                                      Margin="8,4"
+                                                                      VerticalAlignment="Center"
+                                                                      HorizontalAlignment="Left"
+                                                                      TextElement.Foreground="{DynamicResource ForegroundBrush}"/>
+                                                    <materialDesign:PackIcon Grid.Column="1"
+                                                                             Kind="ChevronDown"
+                                                                             Width="16"
+                                                                             Height="16"
+                                                                             Foreground="{DynamicResource ForegroundBrush}"
+                                                                             Margin="0,0,8,0"
+                                                                             VerticalAlignment="Center"/>
+                                                </Grid>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <Popup x:Name="Popup"
+                                       Placement="Bottom"
+                                       IsOpen="{TemplateBinding IsDropDownOpen}"
+                                       AllowsTransparency="True"
+                                       Focusable="False"
+                                       PopupAnimation="Slide">
+                                    <Border Background="{DynamicResource SecondaryBackgroundBrush}"
+                                            BorderBrush="{DynamicResource BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="4"
+                                            MinWidth="{TemplateBinding ActualWidth}"
+                                            MaxHeight="200">
+                                        <ScrollViewer>
+                                            <StackPanel IsItemsHost="True"/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+                <Setter Property="ItemContainerStyle">
+                    <Setter.Value>
+                        <Style TargetType="{x:Type ComboBoxItem}">
+                            <Setter Property="Background" Value="Transparent"/>
+                            <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+                            <Setter Property="Padding" Value="8,4"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#FF3A3A3A"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter Property="Background" Value="#FF2D5F8D"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <!-- Custom CheckBox Style with MaterialDesign Icons -->
+            <Style x:Key="CustomCheckBoxStyle" TargetType="{x:Type CheckBox}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type CheckBox}">
+                            <Border Background="Transparent" Cursor="Hand">
+                                <Grid Background="Transparent">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <materialDesign:PackIcon
+                                            x:Name="CheckboxIcon"
+                                            Width="20" Height="20"
+                                            Foreground="{DynamicResource BorderBrush}"
+                                            Kind="CheckboxBlankOutline" />
+                                        <ContentPresenter
+                                            Margin="5,0,0,0"
+                                            VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <!-- invisible overlay to make whole area clickable -->
+                                    <Border Background="Transparent" />
+                                </Grid>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="CheckboxIcon" Property="Kind" Value="CheckboxMarkedOutline" />
+                                    <Setter TargetName="CheckboxIcon" Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+            
+            <!-- Dark Theme CheckBox (for itemize) -->
+            <Style x:Key="DarkCheckBoxStyle" TargetType="{x:Type CheckBox}" BasedOn="{StaticResource CustomCheckBoxStyle}"/>
+
+            <!-- DataGrid Header Style -->
+            <Style x:Key="DataGridColumnHeaderStyle" TargetType="{x:Type DataGridColumnHeader}">
+                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                <Setter Property="BorderThickness" Value="0,0,1,1"/>
+                <Setter Property="Padding" Value="8,4"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            </Style>
+
+            
         </ResourceDictionary>
     </Window.Resources>
 
@@ -204,6 +341,27 @@
                                     Margin="0,0,6,0"/>
                         </StackPanel>
 
+                        <!-- Schedule Select and Itemize -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Left" Margin="10,0,0,0">
+                            <ComboBox x:Name="SchedulesComboBox"
+                                      Width="200"
+                                      Height="32"
+                                      Margin="0,0,10,0"
+                                      SelectionChanged="SchedulesComboBox_SelectionChanged"
+                                      DisplayMemberPath="Name"
+                                      Style="{StaticResource DarkComboBoxStyle}"/>
+                            
+                            <CheckBox x:Name="ItemizeCheckBox"
+                                      Content="Itemize every instance"
+                                      VerticalAlignment="Center"
+                                      Foreground="{DynamicResource ForegroundBrush}"
+                                      Checked="Itemize_Checked"
+                                      Unchecked="Itemize_Unchecked"
+                                      IsChecked="True"
+                                      Margin="0,0,10,0"
+                                      Style="{StaticResource DarkCheckBoxStyle}"/>
+                        </StackPanel>
+
                         <!-- Search Box with Magnify Icon -->
                         <Border Grid.Column="1"
                                 Width="240"
@@ -285,10 +443,12 @@
                                       CanUserDeleteRows="False" 
                                       CanUserResizeRows="False"
                                       Style="{StaticResource CustomDataGridStyle}"
+                                      ColumnHeaderStyle="{StaticResource DataGridColumnHeaderStyle}"
+                                      CellStyle="{StaticResource CustomDataGridCellStyle}"
                                       SelectionMode="Extended"
                                       SelectionUnit="FullRow"
-                                      AlternatingRowBackground="{DynamicResource SecondaryBackgroundBrush}"
-                                      RowBackground="{DynamicResource PrimaryBackgroundBrush}"
+                                      AlternationCount="2"
+                                      RowStyle="{StaticResource CustomDataGridRowStyle}"
                                       RowHeight="20"
                                       GridLinesVisibility="None"
                                       HeadersVisibility="Column"
@@ -533,7 +693,8 @@
                                        Margin="0,0,0,20"/>
 
                             <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button Content="Discard"
+                                <Button x:Name="ConfirmActionButton"
+                                        Content="Discard"
                                         Click="ConfirmDiscard_Click"
                                         Style="{StaticResource CustomActionButtonStyle}"
                                         Width="90" 
@@ -695,7 +856,7 @@
 
                             <!-- Title -->
                             <TextBlock Grid.Row="0"
-                                       Text="Batch Rename Sheets"
+                                       Text="Batch Rename parameter values"
                                        FontSize="18"
                                        FontWeight="Bold"
                                        Foreground="{DynamicResource ForegroundBrush}"

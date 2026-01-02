@@ -51,6 +51,7 @@
     </Reference>
     <!-- System.Windows.Forms is implicit in NET Framework generally, but explicit ref is harmless or sometimes needed -->
     <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Data.DataSetExtensions" />
   </ItemGroup>
 
   <!-- Revit 2026 (NET 8.0) -->

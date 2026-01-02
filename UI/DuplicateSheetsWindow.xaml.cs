@@ -18,6 +18,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using System.Data;
 
 namespace ProSchedules.UI
 {
@@ -55,10 +56,17 @@ namespace ProSchedules.UI
         private bool _isDarkMode = true;
         private bool _isDataLoaded;
         private UIApplication _uiApplication;
+        private RevitService _revitService;
 
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<RenamePreviewItem> RenamePreviewItems { get; set; } = new ObservableCollection<RenamePreviewItem>();
+
+        private Commands.ParameterUpdateHandler _paramHandler;
+        private ExternalEvent _paramExternalEvent;
+        private ProSchedules.Models.ScheduleData _currentScheduleData;
+        private Dictionary<ElementId, bool> _scheduleItemizeSettings = new Dictionary<ElementId, bool>();
+        private System.Data.DataTable _rawScheduleData;
 
         #endregion
 
@@ -105,6 +113,8 @@ namespace ProSchedules.UI
 
         private void LoadData(Document doc)
         {
+            _revitService = new RevitService(doc);
+            
             var collector = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet));
             _allSheets = new List<SheetItem>();
 
@@ -115,7 +125,7 @@ namespace ProSchedules.UI
                 sheetItem.State = SheetItemState.ExistingInRevit;
                 sheetItem.OriginalSheetNumber = sheet.SheetNumber;
                 sheetItem.OriginalName = sheet.Name;
-                sheetItem.PropertyChanged += OnSheetPropertyChanged; // Subscribe to changes
+                sheetItem.PropertyChanged += OnSheetPropertyChanged;
                 _allSheets.Add(sheetItem);
             }
 
@@ -128,9 +138,328 @@ namespace ProSchedules.UI
                 FilteredSheets.Add(s);
             }
 
+            // Load Schedules
+            var schedules = _revitService.GetSchedules();
+            var comboItems = new List<ScheduleOption>();
+            comboItems.Add(new ScheduleOption { Name = "All Sheets (Default)", Id = ElementId.InvalidElementId, Schedule = null });
+            foreach(var s in schedules)
+            {
+                comboItems.Add(new ScheduleOption { Name = s.Name, Id = s.Id, Schedule = s });
+            }
+            SchedulesComboBox.ItemsSource = comboItems;
+            SchedulesComboBox.SelectedIndex = 0;
+
             UpdateButtonStates();
             _isDataLoaded = true;
             TryShowWindow();
+        }
+
+        private void SchedulesComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            
+            if (selectedItem != null && selectedItem.Schedule != null)
+            {
+                LoadScheduleData(selectedItem.Schedule);
+            }
+            else
+            {
+                RestoreSheetView();
+            }
+        }
+
+        private void RestoreSheetView()
+        {
+            SheetsDataGrid.ItemsSource = null;
+            SheetsDataGrid.Columns.Clear();
+            
+            SheetsDataGrid.ItemsSource = FilteredSheets;
+            SheetsDataGrid.AutoGenerateColumns = false;
+            
+            InitializeSheetColumns();
+        }
+
+        private void InitializeSheetColumns()
+        {
+            SheetsDataGrid.Columns.Clear();
+            
+            var checkBoxColumn = CreateCheckBoxColumn();
+            SheetsDataGrid.Columns.Add(checkBoxColumn);
+            
+            var numberCol = new DataGridTextColumn
+            {
+                Header = "Sheet Number",
+                Binding = new System.Windows.Data.Binding("SheetNumber"),
+                Width = new DataGridLength(150)
+            };
+            SheetsDataGrid.Columns.Add(numberCol);
+            
+            var nameCol = new DataGridTextColumn
+            {
+                Header = "Sheet Name",
+                Binding = new System.Windows.Data.Binding("Name"),
+                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
+            };
+            SheetsDataGrid.Columns.Add(nameCol);
+        }
+
+        private DataGridTemplateColumn CreateCheckBoxColumn()
+        {
+            var headerCheckBox = new CheckBox
+            {
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                Style = (Style)FindResource("CustomCheckBoxStyle")
+            };
+            headerCheckBox.Checked += HeaderCheckBox_Checked;
+            headerCheckBox.Unchecked += HeaderCheckBox_Unchecked;
+
+            var baseStyle = FindResource("CustomDataGridCellStyle") as Style;
+            var cellStyle = new Style(typeof(DataGridCell), baseStyle);
+            cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center));
+            cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center));
+
+            // Create template for checkbox cells
+            var cellTemplate = new DataTemplate();
+            var checkBoxFactory = new FrameworkElementFactory(typeof(CheckBox));
+            checkBoxFactory.SetValue(CheckBox.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center);
+            checkBoxFactory.SetValue(CheckBox.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center);
+            checkBoxFactory.SetValue(CheckBox.StyleProperty, FindResource("CustomCheckBoxStyle"));
+            checkBoxFactory.SetBinding(CheckBox.IsCheckedProperty, new System.Windows.Data.Binding("IsSelected") { Mode = System.Windows.Data.BindingMode.TwoWay });
+            checkBoxFactory.AddHandler(CheckBox.ClickEvent, new RoutedEventHandler(RowCheckBox_Click));
+            cellTemplate.VisualTree = checkBoxFactory;
+
+            var col = new DataGridTemplateColumn
+            {
+                Header = headerCheckBox,
+                CellTemplate = cellTemplate,
+                Width = new DataGridLength(40),
+                CellStyle = cellStyle
+            };
+            return col;
+        }
+
+        private void RowCheckBox_Click(object sender, RoutedEventArgs e)
+        {
+            // If multiple rows are selected, apply the checkbox state to all selected rows
+            if (SheetsDataGrid.SelectedItems.Count > 1)
+            {
+                var checkBox = sender as CheckBox;
+                if (checkBox == null) return;
+
+                bool isChecked = checkBox.IsChecked == true;
+                
+                var view = SheetsDataGrid.ItemsSource;
+                if (view is System.Data.DataView dataView)
+                {
+                    foreach (var selectedItem in SheetsDataGrid.SelectedItems)
+                    {
+                        if (selectedItem is System.Data.DataRowView rowView)
+                        {
+                            rowView["IsSelected"] = isChecked;
+                        }
+                    }
+                }
+                else if (view is ObservableCollection<SheetItem> sheets)
+                {
+                    foreach (var selectedItem in SheetsDataGrid.SelectedItems)
+                    {
+                        if (selectedItem is SheetItem sheet)
+                        {
+                            sheet.IsSelected = isChecked;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void HeaderCheckBox_Checked(object sender, RoutedEventArgs e)
+        {
+            var view = SheetsDataGrid.ItemsSource;
+            if (view is System.Data.DataView dataView)
+            {
+                foreach (System.Data.DataRowView row in dataView)
+                {
+                    row["IsSelected"] = true;
+                }
+            }
+            else if (view is ObservableCollection<SheetItem> sheets)
+            {
+                foreach (var sheet in sheets)
+                {
+                    sheet.IsSelected = true;
+                }
+            }
+        }
+
+        private void HeaderCheckBox_Unchecked(object sender, RoutedEventArgs e)
+        {
+            var view = SheetsDataGrid.ItemsSource;
+            if (view is System.Data.DataView dataView)
+            {
+                foreach (System.Data.DataRowView row in dataView)
+                {
+                    row["IsSelected"] = false;
+                }
+            }
+            else if (view is ObservableCollection<SheetItem> sheets)
+            {
+                foreach (var sheet in sheets)
+                {
+                    sheet.IsSelected = false;
+                }
+            }
+        }
+
+        private void LoadScheduleData(ViewSchedule schedule)
+        {
+            try
+            {
+                var data = _revitService.GetScheduleData(schedule);
+                _currentScheduleData = data;
+                
+                if (!_scheduleItemizeSettings.ContainsKey(schedule.Id))
+                {
+                    _scheduleItemizeSettings[schedule.Id] = true;
+                }
+                bool isItemized = _scheduleItemizeSettings[schedule.Id];
+                
+                ItemizeCheckBox.IsChecked = isItemized;
+                ItemizeCheckBox.Visibility = System.Windows.Visibility.Visible;
+
+                var dt = new System.Data.DataTable();
+                dt.Columns.Add("IsSelected", typeof(bool)).DefaultValue = false;
+                dt.Columns.Add("RowState", typeof(string)).DefaultValue = "Unchanged";
+                dt.Columns.Add("Count", typeof(int));
+
+                foreach(var colName in data.Columns)
+                {
+                    string safeName = colName;
+                    int i = 1;
+                    while(dt.Columns.Contains(safeName))
+                    {
+                        safeName = $"{colName} ({i++})";
+                    }
+                    dt.Columns.Add(safeName);
+                }
+                
+                foreach(var row in data.Rows)
+                {
+                    var newRow = dt.NewRow();
+                    newRow["IsSelected"] = false;
+                    newRow["RowState"] = "Unchanged";
+                    newRow["Count"] = 1;
+                    
+                    for(int i = 0; i < data.Columns.Count; i++)
+                    {
+                        newRow[i + 3] = row[i];
+                    }
+                    
+                    dt.Rows.Add(newRow);
+                }
+                
+                _rawScheduleData = dt;
+                RefreshScheduleView(isItemized);
+            }
+            catch (Exception ex)
+            {
+                ShowPopup("Error Loading Schedule", ex.Message);
+            }
+        }
+
+        private void RefreshScheduleView(bool itemize)
+        {
+            System.Data.DataTable viewTable = _rawScheduleData;
+            
+            if (!itemize && viewTable != null)
+            {
+                viewTable = viewTable.Clone();
+                var grouped = _rawScheduleData.AsEnumerable()
+                    .GroupBy(r => r["TypeName"]?.ToString() ?? "");
+                
+                foreach(var grp in grouped)
+                {
+                    var firstRow = grp.First();
+                    var newRow = viewTable.NewRow();
+                    newRow.ItemArray = firstRow.ItemArray;
+                    newRow["Count"] = grp.Count();
+                    viewTable.Rows.Add(newRow);
+                }
+            }
+            
+            SheetsDataGrid.ItemsSource = null;
+            SheetsDataGrid.Columns.Clear();
+            SheetsDataGrid.AutoGenerateColumns = false;
+            
+            if (viewTable == null) return;
+            
+            var baseStyle = FindResource("CustomDataGridCellStyle") as Style;
+            var cellStyle = new Style(typeof(DataGridCell), baseStyle);
+            var cellTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("RowState"),
+                Value = "Pending"
+            };
+            cellTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, new SolidColorBrush(Colors.Yellow) { Opacity = 0.5 }));
+            cellStyle.Triggers.Add(cellTrigger);
+            
+            // First add checkbox column
+            var checkCol = CreateCheckBoxColumn();
+            SheetsDataGrid.Columns.Add(checkCol);
+            
+            // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected)
+            var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "Count" };
+            foreach(System.Data.DataColumn col in viewTable.Columns)
+            {
+                if (skipColumns.Contains(col.ColumnName)) continue;
+                
+                // Skip columns that end with " (1)", " (2)", etc. - these are duplicates
+                if (System.Text.RegularExpressions.Regex.IsMatch(col.ColumnName, @"\s\(\d+\)$")) continue;
+                
+                var textCol = new DataGridTextColumn
+                {
+                    Header = col.ColumnName,
+                    Binding = new System.Windows.Data.Binding(col.ColumnName),
+                    CellStyle = cellStyle,
+                    IsReadOnly = false
+                };
+                SheetsDataGrid.Columns.Add(textCol);
+            }
+            
+            // Finally add Count column at the end
+            if (viewTable.Columns.Contains("Count"))
+            {
+                var countCol = new DataGridTextColumn
+                {
+                    Header = "Count",
+                    Binding = new System.Windows.Data.Binding("Count"),
+                    CellStyle = cellStyle,
+                    IsReadOnly = true
+                };
+                SheetsDataGrid.Columns.Add(countCol);
+            }
+            
+            SheetsDataGrid.ItemsSource = new System.Data.DataView(viewTable);
+        }
+
+        private void Itemize_Checked(object sender, RoutedEventArgs e)
+        {
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            if (selectedItem != null && selectedItem.Schedule != null)
+            {
+                _scheduleItemizeSettings[selectedItem.Id] = true;
+                RefreshScheduleView(true);
+            }
+        }
+
+        private void Itemize_Unchecked(object sender, RoutedEventArgs e)
+        {
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            if (selectedItem != null && selectedItem.Schedule != null)
+            {
+                _scheduleItemizeSettings[selectedItem.Id] = false;
+                RefreshScheduleView(false);
+            }
         }
 
         private void OnDuplicationFinished(int success, int fail, string errorMsg, List<ElementId> newSheetIds)

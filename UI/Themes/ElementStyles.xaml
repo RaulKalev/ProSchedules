@@ -46,7 +46,7 @@
         </Setter>
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="#FF454545"/>
+                <Setter Property="Background" Value="Transparent"/>
                 <Setter Property="BorderBrush" Value="Transparent"/>
                 <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
             </Trigger>
@@ -127,6 +127,30 @@
         </Setter>
     </Style>
 
+    <!-- Custom DataGridRow Style -->
+    <Style x:Key="CustomDataGridRowStyle" TargetType="{x:Type DataGridRow}">
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="SnapsToDevicePixels" Value="true"/>
+        <Setter Property="Validation.ErrorTemplate" Value="{x:Null}"/>
+        <Style.Triggers>
+            <!-- Alternating Row Color -->
+            <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                <Setter Property="Background" Value="{DynamicResource SecondaryBackgroundBrush}"/>
+            </Trigger>
+            
+            <!-- Selection and MouseOver (Must be after Alternation to take precedence) -->
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="#FF3A3A3A"/>
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="#FF5E5E5E"/>
+                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
     <!--  Custom Style for DataGrid  -->
     <Style
         x:Key="CustomDataGridStyle"
@@ -141,24 +165,10 @@
             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="{DynamicResource ForegroundColor}"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#FF404040"/>
             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="{DynamicResource ForegroundColor}"/>
-            
-            <!-- Force Row Foreground to match theme and handle Selection Background -->
-            <Style TargetType="DataGridRow">
-                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Style.Triggers>
-                    <Trigger Property="IsSelected" Value="True">
-                        <Setter Property="Background" Value="#FF4A4A4A"/> 
-                        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
-                    </Trigger>
-                    <Trigger Property="IsMouseOver" Value="True">
-                        <Setter Property="Background" Value="#FF3A3A3A"/>
-                    </Trigger>
-                </Style.Triggers>
-            </Style>
         </Style.Resources>
 
         <Setter Property="CellStyle" Value="{StaticResource CustomDataGridCellStyle}"/>
+        <Setter Property="RowStyle" Value="{StaticResource CustomDataGridRowStyle}"/>
         <Setter Property="SelectionMode" Value="Single" />
         <Setter Property="SelectionUnit" Value="FullRow" />
         <Setter Property="BorderThickness" Value="0" />

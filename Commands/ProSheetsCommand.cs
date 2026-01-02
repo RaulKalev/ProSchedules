@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 namespace ProSchedules.Commands
 {
     [Transaction(TransactionMode.Manual)]
-    public class DuplicateSheetsCommand : IExternalCommand
+    public class ProSheetsCommand : IExternalCommand
     {
         private static UI.DuplicateSheetsWindow _window;
 

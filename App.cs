@@ -8,71 +8,44 @@ namespace ProSchedules
     [AppLoader]
     public class App : IExternalApplication
     {
-        private const string RibbonTabName = "RK Tools";
-        private const string ToolsPanelName = "Tools";
-        private const string DuplicateSheetsId = "DuplicateSheetsCommand";
-
         private RibbonPanel ribbonPanel;
 
         public Result OnStartup(UIControlledApplication application)
         {
-            string tabName = RibbonTabName;
-            string toolsPanelName = ToolsPanelName;
-            string duplicateSheetsId = DuplicateSheetsId;
+            // Define the custom tab name
+            string tabName = "RK Tools";
 
+            // Try to create the custom tab (avoid exception if it already exists)
             try
             {
                 application.CreateRibbonTab(tabName);
             }
             catch
             {
+                // Tab already exists; continue without throwing an error
             }
 
-            ribbonPanel = application.CreateOrSelectPanel(tabName, toolsPanelName);
+            // Create Ribbon Panel on the custom tab
+            ribbonPanel = application.CreateOrSelectPanel(tabName, "Tools");
 
-            var duplicateSheetsData = new PushButtonData(
-                duplicateSheetsId, 
-                "Pro\nSchedules",
-                typeof(DuplicateSheetsCommand).Assembly.Location, 
-                typeof(DuplicateSheetsCommand).FullName
-            )
-            {
-                ToolTip = "Manage sheet duplication and batch renaming.",
-                LongDescription = "Duplicate sheets in bulk, rename with find/replace, prefixes/suffixes, and preview changes before applying.",
-            };
-
-            var item = ribbonPanel.AddItem(duplicateSheetsData);
-
-            if (item is PushButton dupBtn)
-            {
-                dupBtn.LargeImage = GetImageSource("Assets/ProSchedules.tiff");
-                dupBtn.Image = GetImageSource("Assets/ProSchedules.tiff");
-                dupBtn.SetContextualHelp("https://github.com/RaulKalev/ProSchedules");
-            }
+            // Create PushButton with embedded resource
+            var duplicateSheetsButton = ribbonPanel.CreatePushButton<ProSheetsCommand>()
+                .SetLargeImage("Assets/ProSchedules.tiff")
+                .SetText("Pro\r\nSchedules")
+                .SetToolTip("Manage sheet duplication and batch renaming.")
+                .SetLongDescription("Duplicate sheets in bulk, rename with find/replace, prefixes/suffixes, and preview changes before applying.")
+                .SetContextualHelp("https://github.com/RaulKalev/ProSchedules");
 
             return Result.Succeeded;
         }
 
         public Result OnShutdown(UIControlledApplication application)
         {
+            // Trigger the update check
+            ribbonPanel?.Remove();
             return Result.Succeeded;
         }
 
-        private System.Windows.Media.ImageSource GetImageSource(string resourcePath)
-        {
-            try
-            {
-                // Assuming resourcePath is relative to project root in embedded resources or strictly in output if Pack URI works
-                // The Pack URI needs the assembly name.
-                var assemblyName = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name;
-                var uri = new Uri($"pack://application:,,,/{assemblyName};component/{resourcePath}", UriKind.Absolute);
-                return new System.Windows.Media.Imaging.BitmapImage(uri);
-            }
-            catch
-            {
-                return null;
-            }
-        }
     }
 }
 
