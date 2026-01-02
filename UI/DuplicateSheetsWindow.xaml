@@ -245,7 +245,7 @@
             Margin="2"
             Background="{DynamicResource PrimaryBackgroundBrush}"
             CornerRadius="10">
-            <Grid>
+            <Grid PreviewMouseDown="Window_PreviewMouseDown">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="30" />
                     <!-- Row 0: Title bar -->

@@ -600,6 +600,35 @@ namespace ProSchedules.UI
             }
         }
 
+        private void Window_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            // Allow clicks on interactive controls or DataGrid rows to function normally
+            DependencyObject obj = e.OriginalSource as DependencyObject;
+            while (obj != null)
+            {
+                // If we clicked a control that should handle its own events, or the DataGridRow itself, don't deselect
+                if (obj is System.Windows.Controls.Button || 
+                    obj is System.Windows.Controls.TextBox || 
+                    obj is System.Windows.Controls.CheckBox || 
+                    obj is System.Windows.Controls.ComboBox || 
+                    obj is System.Windows.Controls.Primitives.ScrollBar || 
+                    obj is System.Windows.Controls.Primitives.DataGridColumnHeader || 
+                    obj is System.Windows.Controls.DataGridRow || 
+                    obj is System.Windows.Controls.Primitives.Thumb)
+                {
+                    return;
+                }
+
+                obj = VisualTreeHelper.GetParent(obj);
+            }
+
+            // If we are here, we clicked empty space (background, borders, etc.) -> Deselect All
+            if (SheetsDataGrid != null)
+            {
+                SheetsDataGrid.UnselectAll();
+            }
+        }
+
         private void CloseButton_Click(object sender, RoutedEventArgs e)
         {
             Close();
