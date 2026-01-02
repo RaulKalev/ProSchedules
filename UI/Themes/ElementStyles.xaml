@@ -134,8 +134,6 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="SnapsToDevicePixels" Value="true"/>
         <Setter Property="Validation.ErrorTemplate" Value="{x:Null}"/>
-        <!-- Bind IsSelected to the ViewModel property to sync CheckBox and Row Selection -->
-        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
         <Style.Triggers>
             <!-- Alternating Row Color -->
             <Trigger Property="ItemsControl.AlternationIndex" Value="1">
