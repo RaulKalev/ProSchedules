@@ -26,7 +26,9 @@ namespace ProSchedules.UI
             AvailableSortColumns = parent.AvailableSortColumns;
             
             DataContext = this;
-            
+
+
+
             // Create initial checkpoint
             CreateCheckpoint();
             

@@ -6,7 +6,8 @@
         xmlns:ui="clr-namespace:ProSchedules.UI"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d" 
-        Title="Sorting" Height="400" Width="600"
+        Title="Sorting" Height="600" Width="600"
+        MinWidth="600" MinHeight="400"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterOwner">

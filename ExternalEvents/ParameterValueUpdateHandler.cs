@@ -21,7 +21,7 @@ namespace ProSchedules.ExternalEvents
             {
                 Document doc = app.ActiveUIDocument.Document;
 
-                if (!long.TryParse(ElementIdStr, out long elemIdValue))
+                if (string.IsNullOrEmpty(ElementIdStr))
                 {
                     ErrorMessage = "Invalid element ID";
                     return;
@@ -33,23 +33,33 @@ namespace ProSchedules.ExternalEvents
                     return;
                 }
 
-                ElementId elementId = new ElementId(elemIdValue);
+                // Split multiple IDs (for grouped rows)
+                string[] idStrings = ElementIdStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+                
                 ElementId parameterId = new ElementId(paramIdValue);
-
-                Element element = doc.GetElement(elementId);
-                if (element == null)
-                {
-                    ErrorMessage = "Element not found";
-                    return;
-                }
+                bool anySuccess = false;
 
                 using (Transaction trans = new Transaction(doc, "Update Parameter Value"))
                 {
                     trans.Start();
 
-                    bool updated = SetParameterValue(doc, element, parameterId, NewValue);
+                    foreach (string idStr in idStrings)
+                    {
+                        if (!long.TryParse(idStr, out long elemIdValue)) continue;
 
-                    if (updated)
+                        ElementId elementId = new ElementId(elemIdValue);
+                        Element element = doc.GetElement(elementId);
+                        
+                        if (element != null)
+                        {
+                            if (SetParameterValue(doc, element, parameterId, NewValue))
+                            {
+                                anySuccess = true;
+                            }
+                        }
+                    }
+
+                    if (anySuccess)
                     {
                         trans.Commit();
                         Success = true;
@@ -57,7 +67,7 @@ namespace ProSchedules.ExternalEvents
                     else
                     {
                         trans.RollBack();
-                        ErrorMessage = "Failed to set parameter value";
+                        ErrorMessage = "Failed to set parameter value for any element.";
                     }
                 }
             }
@@ -160,6 +170,13 @@ namespace ProSchedules.ExternalEvents
                         break;
 
                     case StorageType.Double:
+                        // First try SetValueString to handle Project Units (e.g. "1000" mm -> "3.28" ft)
+                        if (p.SetValueString(value))
+                        {
+                            return true;
+                        }
+
+                        // Fallback to internal units conversion if string parsing fails/isn't applicable
                         if (double.TryParse(value, out double dblVal))
                         {
                             p.Set(dblVal);

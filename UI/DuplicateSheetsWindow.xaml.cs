@@ -470,35 +470,47 @@ namespace ProSchedules.UI
 
         private void RowCheckBox_Click(object sender, RoutedEventArgs e)
         {
-            // If multiple rows are selected, apply the checkbox state to all selected rows
+            var checkBox = sender as CheckBox;
+            if (checkBox == null) return;
+            bool isChecked = checkBox.IsChecked == true;
+
+            // 1. Handle "SelectedItems" (Full Row Selection mode - though we are in Cell mode, this might still be populated if user selects full rows)
             if (SheetsDataGrid.SelectedItems.Count > 1)
             {
-                var checkBox = sender as CheckBox;
-                if (checkBox == null) return;
+               foreach (var selectedItem in SheetsDataGrid.SelectedItems)
+                {
+                    SetRowSelection(selectedItem, isChecked);
+                }
+            }
 
-                bool isChecked = checkBox.IsChecked == true;
-                
-                var view = SheetsDataGrid.ItemsSource;
-                if (view is System.Data.DataView dataView)
+            // 2. Handle "SelectedCells" (Cell Selection mode)
+            // If the user selected a range of cells in the first column (Checkbox column), we want to toggle all of them.
+            // Checkbox column is usually index 0.
+            if (SheetsDataGrid.SelectedCells.Count > 1)
+            {
+                foreach(var cellInfo in SheetsDataGrid.SelectedCells)
                 {
-                    foreach (var selectedItem in SheetsDataGrid.SelectedItems)
+                    // Check if this cell is in the Checkbox column
+                    // We can check Column.DisplayIndex or checking the content. 
+                    // Our Checkbox column is a DataGridTemplateColumn created in code.
+                    // Let's assume it's the one with index 0.
+                    if (cellInfo.Column.DisplayIndex == 0)
                     {
-                        if (selectedItem is System.Data.DataRowView rowView)
-                        {
-                            rowView["IsSelected"] = isChecked;
-                        }
+                        SetRowSelection(cellInfo.Item, isChecked);
                     }
                 }
-                else if (view is ObservableCollection<SheetItem> sheets)
-                {
-                    foreach (var selectedItem in SheetsDataGrid.SelectedItems)
-                    {
-                        if (selectedItem is SheetItem sheet)
-                        {
-                            sheet.IsSelected = isChecked;
-                        }
-                    }
-                }
+            }
+        }
+
+        private void SetRowSelection(object item, bool isSelected)
+        {
+            if (item is System.Data.DataRowView rowView)
+            {
+                rowView["IsSelected"] = isSelected;
+            }
+            else if (item is SheetItem sheet)
+            {
+                sheet.IsSelected = isSelected;
             }
         }
 
@@ -540,6 +552,8 @@ namespace ProSchedules.UI
             }
         }
 
+
+
         private void LoadScheduleData(ViewSchedule schedule)
         {
             try
@@ -563,8 +577,7 @@ namespace ProSchedules.UI
                 dt.Columns.Add("RowState", typeof(string)).DefaultValue = "Unchanged";
                 dt.Columns.Add("Count", typeof(int));
 
-                AvailableSortColumns.Clear();
-                AvailableSortColumns.Add("(none)");
+                var newSortColumns = new List<string> { "(none)" };
 
                 // Detect column types
                 for(int i = 0; i < data.Columns.Count; i++)
@@ -576,21 +589,34 @@ namespace ProSchedules.UI
                         safeName = $"{data.Columns[i]} ({dupIdx++})";
                     }
 
-                    AvailableSortColumns.Add(safeName);
+                    // Filter out internal columns from sorting options
+                    if (safeName != "ElementId" && safeName != "TypeName" && !safeName.StartsWith("Count"))
+                    {
+                        newSortColumns.Add(safeName);
+                    }
 
 
                     // Check if column is numeric
                     bool isNumeric = true;
                     bool hasValue = false;
-                    foreach(var r in data.Rows)
+
+                    if (safeName == "ElementId")
                     {
-                        string val = r[i];
-                        if (string.IsNullOrWhiteSpace(val)) continue;
-                        hasValue = true;
-                        if (!double.TryParse(val, out _))
+                        isNumeric = false;
+                        hasValue = true; // Force string creation
+                    }
+                    else
+                    {
+                        foreach(var r in data.Rows)
                         {
-                            isNumeric = false;
-                            break;
+                            string val = r[i];
+                            if (string.IsNullOrWhiteSpace(val)) continue;
+                            hasValue = true;
+                            if (!double.TryParse(val, out _))
+                            {
+                                isNumeric = false;
+                                break;
+                            }
                         }
                     }
 
@@ -601,6 +627,29 @@ namespace ProSchedules.UI
                     else
                     {
                         dt.Columns.Add(safeName, typeof(string));
+                    }
+                }
+
+                // Smart Update AvailableSortColumns to preserve bindings
+                bool updateNeeded = AvailableSortColumns.Count != newSortColumns.Count;
+                if (!updateNeeded)
+                {
+                    for (int i = 0; i < newSortColumns.Count; i++)
+                    {
+                        if (AvailableSortColumns[i] != newSortColumns[i])
+                        {
+                            updateNeeded = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (updateNeeded)
+                {
+                    AvailableSortColumns.Clear();
+                    foreach (var col in newSortColumns)
+                    {
+                        AvailableSortColumns.Add(col);
                     }
                 }
                 
@@ -672,6 +721,15 @@ namespace ProSchedules.UI
                     var newRow = viewTable.NewRow();
                     newRow.ItemArray = firstRow.ItemArray;
                     newRow["Count"] = grp.Count();
+
+                    // Aggregate ElementIds if present
+                    if (viewTable.Columns.Contains("ElementId"))
+                    {
+                        var ids = grp.Select(r => r["ElementId"]?.ToString())
+                                     .Where(s => !string.IsNullOrEmpty(s));
+                        newRow["ElementId"] = string.Join(",", ids);
+                    }
+
                     viewTable.Rows.Add(newRow);
                 }
             }
@@ -1014,7 +1072,7 @@ namespace ProSchedules.UI
 
         private void Sort_Click(object sender, RoutedEventArgs e)
         {
-            PrepareSortData();
+
 
             if (_sortingWindow == null || !_sortingWindow.IsLoaded)
             {
@@ -1030,33 +1088,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private void PrepareSortData()
-        {
-             AvailableSortColumns.Clear();
-             AvailableSortColumns.Add("(none)");
-             
-             if (SheetsDataGrid.Columns.Count > 0)
-             {
-                 foreach (var col in SheetsDataGrid.Columns)
-                 {
-                     if (col.Header is string header && !string.IsNullOrEmpty(header) 
-                         && header != "Count" && header != "Sheet Number" && header != "Sheet Name") 
-                     {
-                          AvailableSortColumns.Add(header);
-                     }
-                      else if (col.Header is string h3 && (h3 == "Sheet Number" || h3 == "Sheet Name"))
-                      {
-                          AvailableSortColumns.Add(h3);
-                      }
-                 }
-             }
 
-            // Ensure at least one blank sort item if empty (unless we are loading from settings which is done elsewhere)
-            if (SortCriteria.Count == 0)
-            {
-                SortCriteria.Add(new SortItem { SelectedColumn = "(none)", IsAscending = true });
-            }
-        }
 
         internal void ApplyCurrentSortLogicInternal()
         {
@@ -2227,8 +2259,16 @@ namespace ProSchedules.UI
             if (IsCopyMode)
             {
                 FillIndicator.Visibility = System.Windows.Visibility.Visible;
-                Canvas.SetLeft(FillIndicator, unionRect.Right + 8);
-                Canvas.SetTop(FillIndicator, unionRect.Bottom + 5);
+                // Position at Top Right of the square (FillHandle)
+                // FillHandle is 6x6, placed at (Right-6, Bottom-6).
+                // So FillHandle Top-Right is (Right, Bottom-6).
+                // We place the "+" so its bottom-left is roughly there?
+                // Or center it?
+                // User said: "top right of the square in the corner" and "2x its size"
+                
+                // Let's place it slightly offset to look "top right"
+                Canvas.SetLeft(FillIndicator, unionRect.Right);
+                Canvas.SetTop(FillIndicator, unionRect.Bottom - 20); // Moved up to sit above/corner
             }
             else
             {
@@ -2372,6 +2412,43 @@ namespace ProSchedules.UI
                 }
                 dep = VisualTreeHelper.GetParent(dep);
             }
+        }
+
+
+
+        private void SheetsDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            UpdateSelectionAdorner();
+        }
+
+        private void SheetsDataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            // Allow horizontal scrolling with Shift + MouseWheel
+            if (Keyboard.Modifiers == ModifierKeys.Shift)
+            {
+                e.Handled = true;
+                var scrollViewer = GetScrollViewer(SheetsDataGrid);
+                if (scrollViewer != null)
+                {
+                    if (e.Delta > 0)
+                        scrollViewer.LineLeft();
+                    else
+                        scrollViewer.LineRight();
+                }
+            }
+        }
+
+        private static ScrollViewer GetScrollViewer(DependencyObject depObj)
+        {
+            if (depObj is ScrollViewer) return depObj as ScrollViewer;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(depObj); i++)
+            {
+                var child = VisualTreeHelper.GetChild(depObj, i);
+                var result = GetScrollViewer(child);
+                if (result != null) return result;
+            }
+            return null;
         }
 
         private void SheetSearch_TextChanged(object sender, TextChangedEventArgs e)

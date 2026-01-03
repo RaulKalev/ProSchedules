@@ -9,6 +9,11 @@
     Height="30"
     Background="Transparent"
     mc:Ignorable="d">
+
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </UserControl.Resources>
+
     <Border
         Background="{DynamicResource PrimaryBackgroundBrush}"
         BorderBrush="Gray"
@@ -74,17 +79,8 @@
                 BorderBrush="Transparent"
                 Click="MinimizeButton_Click"
                 DockPanel.Dock="Right"
-                ToolTip="Minimize">
-                <Button.Style>
-                   <Style TargetType="Button">
-                       <Setter Property="Visibility" Value="Visible"/>
-                       <Style.Triggers>
-                           <DataTrigger Binding="{Binding IsMinimizeVisible, RelativeSource={RelativeSource AncestorType=local:TitleBar}}" Value="False">
-                               <Setter Property="Visibility" Value="Collapsed"/>
-                           </DataTrigger>
-                       </Style.Triggers>
-                   </Style>
-                </Button.Style>
+                ToolTip="Minimize"
+                Visibility="{Binding IsMinimizeVisible, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVis}}">
                 <Button.Template>
                     <ControlTemplate TargetType="Button">
                         <Grid Background="Transparent">

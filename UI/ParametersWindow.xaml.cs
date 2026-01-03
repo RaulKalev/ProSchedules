@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Autodesk.Revit.DB;
 using ProSchedules.Models;
 
@@ -97,5 +99,94 @@ namespace ProSchedules.UI
         {
             Close();
         }
+
+        #region Drag and Drop
+        
+        private System.Windows.Point _startPoint;
+
+        private void ScheduledParamsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            _startPoint = e.GetPosition(null);
+        }
+
+        private void ScheduledParamsList_PreviewMouseMove(object sender, MouseEventArgs e)
+        {
+            if (e.LeftButton == MouseButtonState.Pressed)
+            {
+                System.Windows.Point position = e.GetPosition(null);
+                if (Math.Abs(position.X - _startPoint.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                    Math.Abs(position.Y - _startPoint.Y) > SystemParameters.MinimumVerticalDragDistance)
+                {
+                    ListBox listBox = sender as ListBox;
+                    ListBoxItem listBoxItem = FindAncestor<ListBoxItem>((DependencyObject)e.OriginalSource);
+
+                    if (listBoxItem == null) return;
+
+                    ParameterItem item = (ParameterItem)listBox.ItemContainerGenerator.ItemFromContainer(listBoxItem);
+
+                    if (item != null)
+                    {
+                        DataObject data = new DataObject("ParameterItem", item);
+                        DragDrop.DoDragDrop(listBoxItem, data, DragDropEffects.Move);
+                    }
+                }
+            }
+        }
+
+        private void ScheduledParamsList_DragOver(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent("ParameterItem"))
+            {
+                e.Effects = DragDropEffects.Move;
+            }
+            else
+            {
+                e.Effects = DragDropEffects.None;
+            }
+            e.Handled = true;
+        }
+
+        private void ScheduledParamsList_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent("ParameterItem"))
+            {
+                ParameterItem droppedData = e.Data.GetData("ParameterItem") as ParameterItem;
+                
+                // Find the target item under the mouse
+                ListBoxItem targetItem = FindAncestor<ListBoxItem>((DependencyObject)e.OriginalSource);
+                
+                if (targetItem != null)
+                {
+                    ParameterItem target = targetItem.DataContext as ParameterItem;
+
+                    if (droppedData != null && target != null && droppedData != target)
+                    {
+                        int oldIndex = ScheduledParams.IndexOf(droppedData);
+                        int newIndex = ScheduledParams.IndexOf(target);
+
+                        if (oldIndex != -1 && newIndex != -1)
+                        {
+                            ScheduledParams.Move(oldIndex, newIndex);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static T FindAncestor<T>(DependencyObject current) where T : DependencyObject
+        {
+            do
+            {
+                if (current is T)
+                {
+                    return (T)current;
+                }
+                current = VisualTreeHelper.GetParent(current);
+            }
+            while (current != null);
+            return null;
+        }
+
+        #endregion
     }
 }
