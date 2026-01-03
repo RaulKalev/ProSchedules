@@ -15,6 +15,9 @@
     AllowsTransparency="True"
     Background="Transparent"
     WindowStyle="None"
+    MouseMove="Window_MouseMove"
+    PreviewKeyDown="Window_PreviewKeyDown"
+    PreviewKeyUp="Window_PreviewKeyUp"
     mc:Ignorable="av">
     <Window.Resources>
         <ResourceDictionary>
@@ -300,11 +303,11 @@
                                       CanUserResizeRows="False"
                                       Style="{StaticResource CustomDataGridStyle}"
                                       ColumnHeaderStyle="{StaticResource DataGridColumnHeaderStyle}"
-                                      CellStyle="{StaticResource CustomDataGridCellStyle}"
+                                      CellStyle="{StaticResource ExcelLikeCellStyle}"
                                       SelectionMode="Extended"
-                                      SelectionUnit="FullRow"
+                                      SelectionUnit="Cell"
                                       AlternationCount="2"
-                                      RowStyle="{StaticResource CustomDataGridRowStyle}"
+                                      RowStyle="{StaticResource ExcelLikeRowStyle}"
                                       RowHeight="20"
                                       GridLinesVisibility="None"
                                       HeadersVisibility="Column"
@@ -339,15 +342,54 @@
                                                         IsReadOnly="False"
                                                         Width="SizeToCells"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle}"
-                                                        ElementStyle="{StaticResource EditableCellStyle}"/>
+                                                        ElementStyle="{StaticResource EditableCellStyle}"
+                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
                                     <DataGridTextColumn Header="Name"
                                                         Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                         IsReadOnly="False"
                                                         Width="*"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle_NoRightBorder}"
-                                                        ElementStyle="{StaticResource EditableCellStyle}"/>
+                                                        ElementStyle="{StaticResource EditableCellStyle}"
+                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
                                 </DataGrid.Columns>
                             </DataGrid>
+                            
+                            <!-- Selection Overlay Canvas -->
+                            <Canvas x:Name="SelectionCanvas" ClipToBounds="True">
+                                <!-- Selection Outline (Green Border) -->
+                                <Border x:Name="SelectionBox"
+                                        BorderBrush="#217346"
+                                        BorderThickness="2"
+                                        IsHitTestVisible="False"
+                                        Visibility="Collapsed"
+                                        SnapsToDevicePixels="True"/>
+                                
+                                <!-- Fill Handle (Bottom Right Grip) -->
+                                <Thumb x:Name="FillHandle"
+                                       Width="6" Height="6"
+                                       Background="#217346"
+                                       Cursor="Cross"
+                                       Visibility="Collapsed"
+                                       IsHitTestVisible="True"
+                                       DragDelta="FillHandle_DragDelta"
+                                       DragCompleted="FillHandle_DragCompleted">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="{x:Type Thumb}">
+                                            <Border Background="{TemplateBinding Background}"/>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+
+                                <!-- Fill Indicator (+) -->
+                                <Border x:Name="FillIndicator"
+                                        Visibility="Collapsed"
+                                        IsHitTestVisible="False">
+                                    <TextBlock Text="+" 
+                                               Foreground="Black" 
+                                               FontSize="10" 
+                                               FontWeight="Bold"/>
+                                </Border>
+                            </Canvas>
                         </Grid>
                     </GroupBox>
                 </Grid>
@@ -932,23 +974,23 @@
 
         <!-- Resize edges -->
         <Border x:Name="LeftEdge" Width="5" HorizontalAlignment="Left" VerticalAlignment="Stretch"
-                Background="Transparent" Cursor="SizeWE"
+                Background="Transparent" Cursor="SizeWE" Panel.ZIndex="3000"
                 MouseEnter="LeftEdge_MouseEnter" MouseLeave="Edge_MouseLeave"
                 MouseLeftButtonDown="LeftEdge_MouseLeftButtonDown" />
         <Border x:Name="RightEdge" Width="9" HorizontalAlignment="Right" VerticalAlignment="Stretch"
-                Background="Transparent" Cursor="SizeWE"
+                Background="Transparent" Cursor="SizeWE" Panel.ZIndex="3000"
                 MouseEnter="RightEdge_MouseEnter" MouseLeave="Edge_MouseLeave"
                 MouseLeftButtonDown="RightEdge_MouseLeftButtonDown" />
         <Border x:Name="BottomEdge" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Bottom"
-                Background="Transparent" Cursor="SizeNS"
+                Background="Transparent" Cursor="SizeNS" Panel.ZIndex="3000"
                 MouseEnter="BottomEdge_MouseEnter" MouseLeave="Edge_MouseLeave"
                 MouseLeftButtonDown="BottomEdge_MouseLeftButtonDown" />
         <Border x:Name="BottomLeftCorner" Width="10" Height="10" HorizontalAlignment="Left" VerticalAlignment="Bottom"
-                Background="Transparent" Cursor="SizeNESW"
+                Background="Transparent" Cursor="SizeNESW" Panel.ZIndex="3000"
                 MouseEnter="BottomLeftCorner_MouseEnter" MouseLeave="Edge_MouseLeave"
                 MouseLeftButtonDown="BottomLeftCorner_MouseLeftButtonDown" />
         <Border x:Name="BottomRightCorner" Width="10" Height="10" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                Background="Transparent" Cursor="SizeNWSE"
+                Background="Transparent" Cursor="SizeNWSE" Panel.ZIndex="3000"
                 MouseEnter="BottomRightCorner_MouseEnter" MouseLeave="Edge_MouseLeave"
                 MouseLeftButtonDown="BottomRightCorner_MouseLeftButtonDown" />
     </Grid>

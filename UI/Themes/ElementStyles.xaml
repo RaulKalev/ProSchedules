@@ -53,6 +53,67 @@
         </Style.Triggers>
     </Style>
 
+    <!-- Style for the cell resize grip thumb -->
+    <Style x:Key="CellResizeGripStyle" TargetType="{x:Type Thumb}">
+        <Setter Property="Width" Value="4"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Cursor" Value="SizeWE"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                    <!-- Invisible hit area, but wide enough to grab -->
+                    <Border Background="{TemplateBinding Background}" Width="{TemplateBinding Width}"/>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Excel Like Cell Style -->
+    <Style x:Key="ExcelLikeCellStyle" TargetType="{x:Type DataGridCell}">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+        <Setter Property="IsHitTestVisible" Value="True"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type DataGridCell}">
+                    <Grid Background="{TemplateBinding Background}" ClipToBounds="False">
+                        <!-- Content -->
+                        <Border BorderBrush="Transparent" 
+                                BorderThickness="0" 
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}" 
+                                              VerticalAlignment="Center" 
+                                              Margin="4,0,4,0"/>
+                        </Border>
+                        
+                        <!-- Active Cell Border (Focus Only) -->
+                        <Border x:Name="ActiveBorder"
+                                BorderBrush="#217346" 
+                                BorderThickness="2"
+                                Visibility="Collapsed"
+                                IsHitTestVisible="False"
+                                SnapsToDevicePixels="True"
+                                Panel.ZIndex="1000"/>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <!-- Show border when Focused (Editing or navigate) -->
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                             <Setter TargetName="ActiveBorder" Property="Visibility" Value="Visible"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
 
     <!--  Thumb  -->
     <Style x:Key="CustomScrollBarThumb" TargetType="{x:Type Thumb}">
@@ -147,6 +208,17 @@
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="#FF5E5E5E"/>
                 <Setter Property="Foreground" Value="{DynamicResource ForegroundBrush}"/>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- Excel-like Row Style: No background change on selection -->
+    <Style x:Key="ExcelLikeRowStyle" TargetType="{x:Type DataGridRow}" BasedOn="{StaticResource CustomDataGridRowStyle}">
+        <Style.Triggers>
+            <!-- Override IsSelected to do nothing (transparent) -->
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderBrush" Value="Transparent"/>
             </Trigger>
         </Style.Triggers>
     </Style>

@@ -33,6 +33,15 @@ The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** 
   - Yellow highlight for modified rows.
   - Clear selection feedback.
 
+### 🖱️ Excel-Like Interaction
+- **Smart Selection**:
+  - Drag-select cells with a cleaner, perimeter-only selection border (no cluttered full-grid highlight).
+  - Handles large selections smoothly with virtualization support.
+- **Auto-Fill & Copy**:
+  - **Sequential Fill**: Drag the fill handle to automatically increment numbers (e.g., "Sheet 1" → "Sheet 2").
+  - **Copy Mode**: Hold `Ctrl` while dragging to perform an exact copy.
+  - **Visual Feedback**: Dynamic crosshair cursor and "Plus" indicator for copy mode.
+
 ### 🎨 Modern UI/UX
 - **Material Design**: Sleek, dark-themed interface using Material Design for XAML.
 - **Custom Window Chrome**: Borderless windows with custom title bars, resizing, and docking.

@@ -102,6 +102,16 @@ namespace ProSchedules.UI
 
         #region Revit state / UI state
 
+        public static readonly DependencyProperty IsCopyModeProperty =
+            DependencyProperty.Register("IsCopyMode", typeof(bool), typeof(DuplicateSheetsWindow), 
+            new PropertyMetadata(false, (d, e) => ((DuplicateSheetsWindow)d).UpdateSelectionAdorner()));
+
+        public bool IsCopyMode
+        {
+            get { return (bool)GetValue(IsCopyModeProperty); }
+            set { SetValue(IsCopyModeProperty, value); }
+        }
+
         private List<SheetItem> _allSheets;
         private Action _onPopupClose;
         private Action _onConfirmAction;
@@ -196,8 +206,21 @@ namespace ProSchedules.UI
             _windowResizer = new WindowResizer(this);
             Closed += MainWindow_Closed;
 
-            // Window-level mouse hooks for resizing
-            MouseMove += Window_MouseMove;
+            // Enforce Cell selection (Excel-like)
+            SheetsDataGrid.SelectionUnit = DataGridSelectionUnit.Cell;
+            SheetsDataGrid.SelectionMode = DataGridSelectionMode.Extended;
+            
+            // Selection Adorner Events
+            SheetsDataGrid.SelectedCellsChanged += (s, e) => UpdateSelectionAdorner();
+            SheetsDataGrid.LayoutUpdated += (s, e) => UpdateSelectionAdorner();
+            SheetsDataGrid.SizeChanged += (s, e) => UpdateSelectionAdorner();
+            SheetsDataGrid.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((s, e) => UpdateSelectionAdorner()));
+
+            // Debug: Show selection count in title
+            SheetsDataGrid.SelectedCellsChanged += (s, e) => {
+                // this.Title = $"Debug: Selected Cells = {SheetsDataGrid.SelectedCells.Count}";
+            };
+
             MouseLeftButtonUp += Window_MouseLeftButtonUp;
 
             // Theme
@@ -415,7 +438,7 @@ namespace ProSchedules.UI
             headerCheckBox.Checked += HeaderCheckBox_Checked;
             headerCheckBox.Unchecked += HeaderCheckBox_Unchecked;
 
-            var baseStyle = FindResource("CustomDataGridCellStyle") as Style;
+            var baseStyle = FindResource("ExcelLikeCellStyle") as Style;
             var cellStyle = new Style(typeof(DataGridCell), baseStyle);
             cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center));
             cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center));
@@ -659,7 +682,7 @@ namespace ProSchedules.UI
             
             if (viewTable == null) return;
             
-            var baseStyle = FindResource("CustomDataGridCellStyle") as Style;
+            var baseStyle = FindResource("ExcelLikeCellStyle") as Style;
             var cellStyle = new Style(typeof(DataGridCell), baseStyle);
             var cellTrigger = new DataTrigger
             {
@@ -1942,6 +1965,399 @@ namespace ProSchedules.UI
             }
         }
 
+        private void FillHandle_DragDelta(object sender, DragDeltaEventArgs e)
+        {
+            var thumb = sender as Thumb;
+            if (thumb != null)
+            {
+                // Find the target cell under the mouse
+                var point = Mouse.GetPosition(SheetsDataGrid);
+                var hitResult = VisualTreeHelper.HitTest(SheetsDataGrid, point);
+                if (hitResult == null) return;
+                
+                DataGridCell targetCell = FindVisualParent<DataGridCell>(hitResult.VisualHit);
+                if (targetCell == null) return;
+
+                // Stop if we are over the same cell as the start
+                // Or checking if selection actually needs change could be optimization
+                
+                // Get Anchor (Current Cell)
+                var anchorInfo = SheetsDataGrid.CurrentCell;
+                if (!anchorInfo.IsValid) return;
+
+                var anchorItem = anchorInfo.Item;
+                var anchorCol = anchorInfo.Column;
+                
+                // Resolve Indices
+                int anchorRowIdx = SheetsDataGrid.Items.IndexOf(anchorItem);
+                int anchorColIdx = anchorCol.DisplayIndex;
+                
+                int targetRowIdx = SheetsDataGrid.Items.IndexOf(targetCell.DataContext);
+                int targetColIdx = targetCell.Column.DisplayIndex;
+                
+                if (anchorRowIdx < 0 || targetRowIdx < 0) return;
+                
+                // Determine Range
+                int minRow = Math.Min(anchorRowIdx, targetRowIdx);
+                int maxRow = Math.Max(anchorRowIdx, targetRowIdx);
+                int minCol = Math.Min(anchorColIdx, targetColIdx);
+                int maxCol = Math.Max(anchorColIdx, targetColIdx);
+                
+                SheetsDataGrid.SelectedCells.Clear();
+                
+                // Select Range
+                for (int r = minRow; r <= maxRow; r++)
+                {
+                    var item = SheetsDataGrid.Items[r];
+                    for (int c = minCol; c <= maxCol; c++)
+                    {
+                        var col = SheetsDataGrid.Columns[c];
+                        SheetsDataGrid.SelectedCells.Add(new DataGridCellInfo(item, col));
+                    }
+                }
+                
+                UpdateSelectionAdorner(); // Force update during drag
+            }
+        }
+
+        private enum SmartFillMode { Copy, Series }
+
+        private void FillHandle_DragCompleted(object sender, DragCompletedEventArgs e)
+        {
+            if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl))
+            {
+                PerformAutoFill(SmartFillMode.Copy);
+            }
+            else
+            {
+                PerformAutoFill(SmartFillMode.Series);
+            }
+        }
+
+        private void PerformAutoFill(SmartFillMode mode)
+        {
+            try
+            {
+                if (SheetsDataGrid.SelectedCells.Count < 2) return;
+
+                // 1. Get Anchor Value (CurrentCell)
+                var anchorInfo = SheetsDataGrid.CurrentCell;
+                if (!anchorInfo.IsValid) return;
+
+                var anchorRow = anchorInfo.Item as System.Data.DataRowView;
+                if (anchorRow == null || _currentScheduleData == null) return;
+
+                string colName = anchorInfo.Column.Header?.ToString();
+                if (string.IsNullOrEmpty(colName)) return;
+
+                // Check if Anchor passes validation (e.g. not ReadOnly)
+                // Actually, Anchor value is valid. We need to check Targets.
+                
+                string sourceValue = anchorRow[colName]?.ToString() ?? "";
+                
+                int anchorRowIndex = SheetsDataGrid.Items.IndexOf(anchorRow);
+
+                // 2. Prepare Updates
+                var updates = new List<ParameterUpdateInfo>();
+                bool hasTypeParameters = false;
+                var affectedTypeParams = new HashSet<string>();
+
+                foreach (var cellInfo in SheetsDataGrid.SelectedCells)
+                {
+                    // Skip if it's the anchor itself (Reference equality check on Item and Column)
+                    if (cellInfo.Item == anchorInfo.Item && cellInfo.Column == anchorInfo.Column) continue;
+
+                    var targetRow = cellInfo.Item as System.Data.DataRowView;
+                    if (targetRow == null) continue;
+
+                    var targetCol = cellInfo.Column;
+                    string targetColName = targetCol.Header?.ToString();
+                    
+                    // We only auto-fill within the SAME column usually?
+                    // Excel allows filling across columns if dragging corner?
+                    // Typically dragging corner fills the selected range.
+                    // If I select a 2x2 range, and drag...
+                    // But here we are dragging the Grip of the Anchor.
+                    // The selection expands.
+                    // Typically we fill with the Anchor's value into ALL selected cells.
+                    // But usually you only fill into same-column cells unless standard Copy/Paste.
+                    // Let's assume SAME COLUMN as Anchor for safety?
+                    // Or follow Selection?
+                    // If I drag right, I copy to right.
+                    // If I drag down, I copy down.
+                    // Let's allow all selected cells.
+                    
+                    if (string.IsNullOrEmpty(targetColName)) continue;
+                    
+                    // Check if Column is ReadOnly
+                    if (targetCol.IsReadOnly) continue;
+
+                    // Get IDs
+                    if (!targetRow.Row.Table.Columns.Contains("ElementId")) continue;
+                    string elementIdStr = targetRow["ElementId"]?.ToString();
+                    if (string.IsNullOrEmpty(elementIdStr)) continue;
+
+                    // Find Parameter ID
+                    int colIndex = _currentScheduleData.Columns.IndexOf(targetColName);
+                    if (colIndex < 0 || colIndex >= _currentScheduleData.ParameterIds.Count) continue;
+                    ElementId paramId = _currentScheduleData.ParameterIds[colIndex];
+
+                    // Check Type Parameter
+                    bool isType = _currentScheduleData.IsTypeParameter.ContainsKey(targetColName) && 
+                                  _currentScheduleData.IsTypeParameter[targetColName];
+
+                    if (isType) 
+                    {
+                        hasTypeParameters = true;
+                        affectedTypeParams.Add(targetColName);
+                    }
+
+                    // Determine New Value
+                    string newValue;
+                    if (mode == SmartFillMode.Series)
+                    {
+                        int targetRowIndex = SheetsDataGrid.Items.IndexOf(targetRow);
+                        int offset = targetRowIndex - anchorRowIndex;
+                        newValue = GetSequentialValue(sourceValue, offset);
+                    }
+                    else
+                    {
+                        newValue = sourceValue;
+                    }
+
+                    // Check if value actually changes (Optimization)
+                    string currentVal = targetRow[targetColName]?.ToString() ?? "";
+                    if (currentVal == newValue) continue;
+
+                    updates.Add(new ParameterUpdateInfo
+                    {
+                        ElementIdStr = elementIdStr,
+                        ParameterId = paramId,
+                        NewValue = newValue,
+                        ColumnName = targetColName,
+                        IsTypeParameter = isType,
+                        Row = targetRow
+                    });
+                }
+
+                if (updates.Count == 0) return;
+
+                // 3. Confirm Type Parameters
+                if (hasTypeParameters)
+                {
+                    string paramNames = string.Join(", ", affectedTypeParams);
+                    ShowConfirmationPopup(
+                        "Batch Update Type Parameters",
+                        $"You are about to update Type Parameters ({paramNames}).\nThis will affect ALL elements of the corresponding types.\n\nProceed with Auto-Fill?",
+                        () => ExecuteBatchUpdates(updates)
+                    );
+                }
+                else
+                {
+                    ExecuteBatchUpdates(updates);
+                }
+            }
+            catch (Exception ex)
+            {
+                ShowPopup("Auto-Fill Error", ex.Message);
+            }
+        }
+        
+        private void UpdateSelectionAdorner()
+        {
+            if (SelectionCanvas == null) return;
+
+            if (SheetsDataGrid.SelectedCells.Count == 0)
+            {
+                SelectionBox.Visibility = System.Windows.Visibility.Collapsed;
+                FillHandle.Visibility = System.Windows.Visibility.Collapsed;
+                FillIndicator.Visibility = System.Windows.Visibility.Collapsed;
+                return;
+            }
+
+            // Calculate Union of Visible Cells
+            System.Windows.Rect unionRect = System.Windows.Rect.Empty;
+            bool hasVisibleCells = false;
+
+            foreach (var cellInfo in SheetsDataGrid.SelectedCells)
+            {
+                var row = SheetsDataGrid.ItemContainerGenerator.ContainerFromItem(cellInfo.Item) as DataGridRow;
+                if (row == null) continue; // Row not loaded/visible
+
+                var col = cellInfo.Column;
+                var cellContent = col.GetCellContent(row);
+                if (cellContent == null) continue; // Cell not loaded
+
+                var cell = cellContent.Parent as FrameworkElement;
+                if (cell == null) continue;
+
+                // Create Rect for this cell
+                System.Windows.Point p = cell.TranslatePoint(new System.Windows.Point(0, 0), SelectionCanvas);
+                System.Windows.Rect cellRect = new System.Windows.Rect(p, new System.Windows.Size(cell.ActualWidth, cell.ActualHeight));
+
+                if (unionRect == System.Windows.Rect.Empty)
+                    unionRect = cellRect;
+                else
+                    unionRect.Union(cellRect);
+
+                hasVisibleCells = true;
+            }
+
+            if (!hasVisibleCells)
+            {
+                SelectionBox.Visibility = System.Windows.Visibility.Collapsed;
+                FillHandle.Visibility = System.Windows.Visibility.Collapsed;
+                FillIndicator.Visibility = System.Windows.Visibility.Collapsed;
+                return;
+            }
+
+            // Update UI
+            SelectionBox.Width = unionRect.Width;
+            SelectionBox.Height = unionRect.Height;
+            Canvas.SetLeft(SelectionBox, unionRect.Left);
+            Canvas.SetTop(SelectionBox, unionRect.Top);
+            SelectionBox.Visibility = System.Windows.Visibility.Visible;
+
+            // Fill Handle (Bottom Right)
+            Canvas.SetLeft(FillHandle, unionRect.Right - 6); 
+            Canvas.SetTop(FillHandle, unionRect.Bottom - 6);
+            FillHandle.Visibility = System.Windows.Visibility.Visible;
+            
+            // Copy Indicator
+            if (IsCopyMode)
+            {
+                FillIndicator.Visibility = System.Windows.Visibility.Visible;
+                Canvas.SetLeft(FillIndicator, unionRect.Right + 8);
+                Canvas.SetTop(FillIndicator, unionRect.Bottom + 5);
+            }
+            else
+            {
+                FillIndicator.Visibility = System.Windows.Visibility.Collapsed;
+            }
+        }
+
+
+
+        private string GetSequentialValue(string original, int offset)
+        {
+            if (string.IsNullOrEmpty(original)) return original;
+
+            // Find the last sequence of digits
+            var matches = System.Text.RegularExpressions.Regex.Matches(original, @"\d+");
+            if (matches.Count > 0)
+            {
+                var lastMatch = matches[matches.Count - 1];
+                long number;
+                if (long.TryParse(lastMatch.Value, out number))
+                {
+                    long newNumber = number + offset;
+                    
+                    // Format preservation: if original was "001", try to keep "002" length
+                    // If "1", keep "2". 
+                    // Use zero padding if original had it.
+                    string format = new string('0', lastMatch.Length);
+                    // Check if actually zero-padded
+                    bool isZeroPadded = lastMatch.Value.StartsWith("0") && lastMatch.Value.Length > 1;
+                    
+                    string newNumStr = isZeroPadded ? newNumber.ToString(format) : newNumber.ToString();
+                    
+                    string prefix = original.Substring(0, lastMatch.Index);
+                    string suffix = original.Substring(lastMatch.Index + lastMatch.Length);
+                    
+                    return prefix + newNumStr + suffix;
+                }
+            }
+            
+            return original;
+        }
+
+        private async void ExecuteBatchUpdates(List<ParameterUpdateInfo> updates)
+        {
+            // We optimize by detecting duplicates for Type Parameters?
+            // If I have 10 rows of Type A, I assume updating one updates all.
+            // But the API call might just do it 10 times.
+            // For safety and simplicity, sending one by one is fine unless performance is hit.
+            // Better: Perform all updates.
+            // Actually, we should probably update the UI first?
+            // "if they approve the change the changes get applied and datagrid refreshed"
+            
+            // We can raise events sequentially?
+            // Or create a Bulk Update Handler?
+            // _parameterValueUpdateHandler handles ONE value.
+            // I should loops.
+            
+            int successCount = 0;
+            int failCount = 0;
+            string lastError = "";
+
+            // Show loading?
+            
+            foreach (var update in updates)
+            {
+                _parameterValueUpdateHandler.ElementIdStr = update.ElementIdStr;
+                _parameterValueUpdateHandler.ParameterIdStr = update.ParameterId.Value.ToString();
+                _parameterValueUpdateHandler.NewValue = update.NewValue;
+
+                _parameterValueUpdateExternalEvent.Raise();
+
+                // Wait for completion (simple spin wait or delay loop)
+                // Since ExternalEvent is async, we need to wait for the handler to finish.
+                // This approach is slow for many items.
+                // Ideally we'd have a specific BulkUpdate handler.
+                // But for now, we iterate.
+                
+                await System.Threading.Tasks.Task.Delay(50); // Small delay to allow Revit to catch up
+                
+                // We don't get individual feedback per item easily unless we track state.
+                // Helper just sets Success property.
+                if (!_parameterValueUpdateHandler.Success)
+                {
+                    failCount++;
+                    lastError = _parameterValueUpdateHandler.ErrorMessage;
+                }
+                else
+                {
+                    successCount++;
+                    // Update Local DataTableRow specifically to avoid full reload flickers?
+                    // But Type Params update other rows too.
+                    // So we must Reload at the end.
+                }
+            }
+
+            // Reload Data
+            Dispatcher.Invoke(() =>
+            {
+                 var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                 if (selectedItem != null && selectedItem.Schedule != null)
+                 {
+                     LoadScheduleData(selectedItem.Schedule);
+                     bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
+                         ? _scheduleItemizeSettings[selectedItem.Id] 
+                         : true;
+                     RefreshScheduleView(isItemized);
+                     ApplyCurrentSortLogic();
+                 }
+            });
+        }
+
+        private class ParameterUpdateInfo
+        {
+            public string ElementIdStr { get; set; }
+            public ElementId ParameterId { get; set; }
+            public string NewValue { get; set; }
+            public string ColumnName { get; set; }
+            public bool IsTypeParameter { get; set; }
+            public System.Data.DataRowView Row { get; set; }
+        }
+
+        private static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject
+        {
+            var parentObject = VisualTreeHelper.GetParent(child);
+            if (parentObject == null) return null;
+            if (parentObject is T parent) return parent;
+            return FindVisualParent<T>(parentObject);
+        }
+
         private void DataGrid_PreviewMouseDown(object sender, MouseButtonEventArgs e)
         {
             var dep = e.OriginalSource as DependencyObject;
@@ -2141,6 +2557,24 @@ namespace ProSchedules.UI
         {
         }
 
+
+
+        private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl)
+            {
+                IsCopyMode = true;
+            }
+        }
+
+        private void Window_PreviewKeyUp(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.LeftCtrl || e.Key == Key.RightCtrl)
+            {
+                IsCopyMode = false;
+            }
+        }
+        
         public void ShowConfirmationPopup(string title, string message, Action onConfirmAction, Action onCancelAction = null)
         {
             ConfirmationTitle.Text = title;
