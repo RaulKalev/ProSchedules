@@ -89,7 +89,7 @@
                         
                         <!-- Active Cell Border (Focus Only) -->
                         <Border x:Name="ActiveBorder"
-                                BorderBrush="#217346" 
+                                BorderBrush="#70babc" 
                                 BorderThickness="2"
                                 Visibility="Collapsed"
                                 IsHitTestVisible="False"
@@ -303,17 +303,16 @@
                                                    Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}" 
                                                    Value="{Binding VerticalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"/>
                                         
-                                        <!-- Horizontal ScrollBar -->
+                                        <!-- Horizontal ScrollBar (Hidden but functional) -->
                                         <ScrollBar x:Name="PART_HorizontalScrollBar"
-                                                   Grid.Column="0"
-                                                   Grid.ColumnSpan="3"
+                                                   Grid.ColumnSpan="2"
                                                    Grid.Row="2" 
                                                    Orientation="Horizontal"
                                                    HorizontalAlignment="Stretch"
                                                    Margin="0"
+                                                   Visibility="Collapsed"
                                                    ViewportSize="{TemplateBinding ViewportWidth}" 
                                                    Maximum="{TemplateBinding ScrollableWidth}" 
-                                                   Visibility="{TemplateBinding ComputedHorizontalScrollBarVisibility}" 
                                                    Value="{Binding HorizontalOffset, Mode=OneWay, RelativeSource={RelativeSource TemplatedParent}}"/>
                                         
                                         <!-- Header Corner (Top Right) -->

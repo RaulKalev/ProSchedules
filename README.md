@@ -42,6 +42,17 @@ The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** 
   - **Copy Mode**: Hold `Ctrl` while dragging to perform an exact copy.
   - **Visual Feedback**: Dynamic crosshair cursor and "Plus" indicator for copy mode.
 
+### 🔍 Highlight in Model (New!)
+- **Smart Selection**:
+  - Tick checkboxes to select items (supports both **Sheet Lists** and **Schedule Items**).
+  - **Group Selection**: Selecting a grouped row automatically selects **all** items in that group.
+- **View Management**:
+  - **Smart View Finding**: Prioritizes finding and opening a **Floor Plan** first.
+  - **View Toggling**: Clicking again toggles between **Floor Plan** and **3D View**.
+  - **Focus**: Selects and zooms to fit elements (keeping context visible).
+- **Checkbox Autofill**:
+  - Drag the fill handle while holding `Ctrl` to fast-check/uncheck multiple rows.
+
 ### 🎨 Modern UI/UX
 - **Material Design**: Sleek, dark-themed interface using Material Design for XAML.
 - **Custom Window Chrome**: Borderless windows with custom title bars, resizing, and docking.

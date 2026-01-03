@@ -100,8 +100,6 @@
                     <!-- Row 0: Title bar -->
                     <RowDefinition Height="*" />
                     <!-- Row 1: Content -->
-                    <RowDefinition Height="Auto" />
-                    <!-- Row 2: Actions -->
                 </Grid.RowDefinitions>
 
                 <!-- Title bar (Row 0) -->
@@ -149,7 +147,7 @@
                 </ToggleButton>
 
                 <!-- Main Content (Row 1) -->
-                <Grid Grid.Row="1" Margin="10,10,10,0">
+                <Grid Grid.Row="1" Margin="10,10,10,10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -184,14 +182,6 @@
                                 <materialDesign:PackIcon Kind="TuneVariant" Width="20" Height="20"/>
                             </Button>
 
-                            <Button Click="Delete_Click"
-                                    Style="{StaticResource CustomActionButtonStyle}"
-                                    Width="32" Height="32"
-                                    ToolTip="Delete Selected"
-                                    Margin="0,0,6,0">
-                                <materialDesign:PackIcon Kind="DeleteOutline" Width="20" Height="20"/>
-                            </Button>
-
                             <Button x:Name="SortButton"
                                     Click="Sort_Click"
                                     Style="{StaticResource CustomActionButtonStyle}"
@@ -199,6 +189,14 @@
                                     Width="32" Height="32"
                                     Margin="0,0,6,0">
                                 <materialDesign:PackIcon Kind="Sort" Width="20" Height="20"/>
+                            </Button>
+
+                            <Button Click="HighlightInModel_Click"
+                                    Style="{StaticResource CustomActionButtonStyle}"
+                                    ToolTip="Highlight in Model"
+                                    Width="32" Height="32"
+                                    Margin="0,0,6,0">
+                                <materialDesign:PackIcon Kind="FileFindOutline" Width="20" Height="20"/>
                             </Button>
                         </StackPanel>
 
@@ -316,7 +314,7 @@
                                       RowHeaderWidth="0"
                                       Background="{DynamicResource PrimaryBackgroundBrush}"
                                       Margin="0,1,0,0"
-                                      HorizontalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Auto"
                                       SelectionChanged="SheetsDataGrid_SelectionChanged"
                                       CellEditEnding="SheetsDataGrid_CellEditEnding"
@@ -363,7 +361,7 @@
                             <Canvas x:Name="SelectionCanvas" ClipToBounds="True">
                                 <!-- Selection Outline (Green Border) -->
                                 <Border x:Name="SelectionBox"
-                                        BorderBrush="#217346"
+                                        BorderBrush="#70babc"
                                         BorderThickness="2"
                                         IsHitTestVisible="False"
                                         Visibility="Collapsed"
@@ -372,7 +370,7 @@
                                 <!-- Fill Handle (Bottom Right Grip) -->
                                 <Thumb x:Name="FillHandle"
                                        Width="6" Height="6"
-                                       Background="#217346"
+                                       Background="#70babc"
                                        Cursor="Cross"
                                        Visibility="Collapsed"
                                        IsHitTestVisible="True"
@@ -398,27 +396,6 @@
                         </Grid>
                     </GroupBox>
                 </Grid>
-
-                <!-- Actions (Row 2) -->
-                <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,15,0,15">
-                    <Button x:Name="ApplyButton"
-                            Content="Apply Changes"
-                            Click="Apply_Click"
-                            Style="{StaticResource CustomActionButtonStyle}"
-                            Width="140" Height="40" FontSize="12" FontWeight="Bold"
-                            Margin="3,0"
-                            IsEnabled="False"/>
-
-                    <Button x:Name="DiscardButton"
-                            Content="Discard Pending"
-                            Click="DiscardPending_Click"
-                            Style="{StaticResource NegativeActionButtonStyle}"
-                            Background="#FF555555"
-                            BorderBrush="#FF555555"
-                            Width="140" Height="40" FontSize="12" FontWeight="Bold"
-                            Margin="3,0"
-                            IsEnabled="False"/>
-                </StackPanel>
 
             </Grid>
         </Border>
@@ -616,67 +593,6 @@
                                         Height="30"
                                         FontSize="12"
                                         Margin="0"/>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-                </Grid>
-
-                <!-- Delete Confirm Popup Overlay -->
-                <Grid x:Name="DeleteConfirmPopupOverlay" Grid.RowSpan="3" Visibility="Collapsed" Panel.ZIndex="1100">
-                    <!-- Dim Background -->
-                    <Border Background="#80000000" MouseLeftButtonDown="DeleteConfirmPopupBackground_Click"/>
-
-                    <!-- Popup Content -->
-                    <Border HorizontalAlignment="Center" 
-                            VerticalAlignment="Center"
-                            Width="360"
-                            Padding="20"
-                            Background="{DynamicResource PrimaryBackgroundBrush}"
-                            BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="15" Direction="-90" RenderingBias="Quality" ShadowDepth="2" Opacity="0.4"/>
-                        </Border.Effect>
-
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-
-                            <TextBlock x:Name="DeleteConfirmPopupTitle" 
-                                       Grid.Row="0"
-                                       Text="Delete Sheets" 
-                                       FontSize="16" 
-                                       FontWeight="Bold" 
-                                       Foreground="{DynamicResource ForegroundBrush}"
-                                       Margin="0,0,0,10"/>
-
-                            <TextBlock x:Name="DeleteConfirmPopupMessage" 
-                                       Grid.Row="1"
-                                       Text="Delete confirmation message." 
-                                       TextWrapping="Wrap"
-                                       Foreground="{DynamicResource ForegroundBrush}"
-                                       Margin="0,0,0,20"/>
-
-                            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-                                <Button Content="Cancel"
-                                        Click="DeleteConfirmCancel_Click"
-                                        Style="{StaticResource NegativeActionButtonStyle}"
-                                        Background="#FF555555"
-                                        BorderBrush="#FF555555"
-                                        Width="90" 
-                                        Height="30"
-                                        FontSize="12"
-                                        Margin="0,0,8,0"/>
-                                <Button Content="OK"
-                                        Click="DeleteConfirmOk_Click"
-                                        Style="{StaticResource CustomActionButtonStyle}"
-                                        Width="90" 
-                                        Height="30"
-                                        FontSize="12"/>
                             </StackPanel>
                         </Grid>
                     </Border>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Pro Schedules</Name>
+    <Assembly>C:\Users\mibil\OneDrive\Desktop\DevDlls\ProSchedules\Release\net48\ProSchedules.dll</Assembly>
+    <FullClassName>ProSchedules.App</FullClassName>
+    <ClientId>8e7d3c4f-2b1a-4f5c-9e8d-1a2b3c4d5e6f</ClientId>
+    <VendorId>RK Tools</VendorId>
+    <VendorDescription>RK Tools - Revit Productivity Suite</VendorDescription>
+  </AddIn>
+</RevitAddIns>
