@@ -122,6 +122,10 @@ namespace ProSchedules.UI
         private RevitService _revitService;
         private ExternalEvent _parameterRenameExternalEvent;
         private ExternalEvents.ParameterRenameHandler _parameterRenameHandler;
+        private ExternalEvent _scheduleFieldsExternalEvent;
+        private ExternalEvents.ScheduleFieldsHandler _scheduleFieldsHandler;
+        private ExternalEvent _parameterLoadExternalEvent;
+        private ExternalEvents.ParameterDataLoadHandler _parameterLoadHandler;
 
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
@@ -164,10 +168,19 @@ namespace ProSchedules.UI
             _deleteHandler.OnDeleteFinished += OnDeleteFinished;
             _deleteExternalEvent = ExternalEvent.Create(_deleteHandler);
 
-            // Create parameter rename handler
             _parameterRenameHandler = new ExternalEvents.ParameterRenameHandler();
             _parameterRenameHandler.OnRenameFinished += OnParameterRenameFinished;
             _parameterRenameExternalEvent = ExternalEvent.Create(_parameterRenameHandler);
+
+            // Create schedule fields handler
+            _scheduleFieldsHandler = new ExternalEvents.ScheduleFieldsHandler();
+            _scheduleFieldsHandler.OnUpdateFinished += OnScheduleFieldsUpdateFinished;
+            _scheduleFieldsExternalEvent = ExternalEvent.Create(_scheduleFieldsHandler);
+
+            // Create parameter load handler
+            _parameterLoadHandler = new ExternalEvents.ParameterDataLoadHandler();
+            _parameterLoadHandler.OnDataLoaded += OnParameterDataLoaded;
+            _parameterLoadExternalEvent = ExternalEvent.Create(_parameterLoadHandler);
 
 
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -655,7 +668,7 @@ namespace ProSchedules.UI
             SheetsDataGrid.Columns.Add(checkCol);
             
             // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected)
-            var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "Count" };
+            var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "Count", "TypeName" };
             foreach(System.Data.DataColumn col in viewTable.Columns)
             {
                 if (skipColumns.Contains(col.ColumnName)) continue;
@@ -1624,7 +1637,66 @@ namespace ProSchedules.UI
 
         private void Parameters_Click(object sender, RoutedEventArgs e)
         {
-            ParametersPopupOverlay.Visibility = System.Windows.Visibility.Visible;
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            if (selectedItem == null || selectedItem.Schedule == null)
+            {
+                ShowPopup("No Schedule Selected", "Please select a schedule first.");
+                return;
+            }
+
+            _parameterLoadHandler.ScheduleId = selectedItem.Id;
+            _parameterLoadExternalEvent.Raise();
+        }
+
+        private void OnParameterDataLoaded(List<ParameterItem> available, List<ParameterItem> scheduled, string categoryName)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                var win = new ParametersWindow(available, scheduled, categoryName);
+                win.Owner = this;
+                win.OnApply += OnParametersApply;
+                win.ShowDialog();
+            });
+        }
+
+        private void OnParametersApply(List<ParameterItem> newFields)
+        {
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            if (selectedItem == null) return;
+
+            _scheduleFieldsHandler.ScheduleId = selectedItem.Id;
+            _scheduleFieldsHandler.NewFields = newFields;
+            _scheduleFieldsExternalEvent.Raise();
+        }
+
+        private void OnScheduleFieldsUpdateFinished(int count, string errorMsg)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                if (!string.IsNullOrEmpty(errorMsg))
+                {
+                    ShowPopup("Error Updating Fields", errorMsg);
+                }
+                else
+                {
+                    // Refresh data
+                    var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                    if (selectedItem?.Schedule != null)
+                    {
+                        LoadScheduleData(selectedItem.Schedule);
+                        
+                        // Restore itemize setting and refresh view
+                        bool itemize = true;
+                        if (_scheduleItemizeSettings.ContainsKey(selectedItem.Id))
+                        {
+                            itemize = _scheduleItemizeSettings[selectedItem.Id];
+                        }
+                        RefreshScheduleView(itemize);
+                        ApplyCurrentSortLogic();
+                    }
+                    ShowPopup("Success", "Schedule fields updated successfully.");
+                }
+            });
         }
 
         private void ParametersClose_Click(object sender, RoutedEventArgs e)

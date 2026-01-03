@@ -74,5 +74,12 @@ dotnet build ProSchedules.csproj -f net8.0-windows # Revit 2026
 - **ricaun.Revit.UI**: Ribbon integration.
 - **Costura.Fody**: DLL embedding for single-file distribution.
 
+## Known Issues / TODO
+
+### Parameters Window
+- **Built-in Type Parameter Values**: Some built-in type parameters (e.g., "Model", "Description") do not currently display their values in the DataGrid, although they show correctly in Revit's native schedule editor. Instance parameters, shared parameters, and project parameters work correctly.
+  - Status: Under investigation
+  - Workaround: Use Revit's native schedule editor for viewing these specific parameter values
+
 ---
 
