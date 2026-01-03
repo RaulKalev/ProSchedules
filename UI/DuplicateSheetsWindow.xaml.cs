@@ -231,6 +231,15 @@ namespace ProSchedules.UI
             LoadSortSettings();
             
             LoadData(app.ActiveUIDocument.Document);
+
+            // Check for updates after window loads
+            Loaded += (s, e) => 
+            {
+                Dispatcher.BeginInvoke(new Action(() => 
+                {
+                    Services.UpdateLogService.CheckAndShow(this);
+                }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            };
         }
 
 
@@ -767,6 +776,7 @@ namespace ProSchedules.UI
                     Header = col.ColumnName,
                     Binding = new System.Windows.Data.Binding(col.ColumnName),
                     CellStyle = cellStyle,
+                    EditingElementStyle = (Style)FindResource("DataGridEditingStyle"),
                     IsReadOnly = false
                 };
                 SheetsDataGrid.Columns.Add(textCol);
@@ -904,23 +914,20 @@ namespace ProSchedules.UI
                          string.IsNullOrEmpty(_parameterValueUpdateHandler.ErrorMessage) 
                             ? "Failed to update parameter value" 
                             : _parameterValueUpdateHandler.ErrorMessage);
-                            
-                // Revert the change in the UI
-                row[columnName] = oldValue;
             }
-            else
+
+            // Always Refresh the DataGrid to ensure UI matches Revit state
+            // On Success: Shows the new value
+            // On Failure: Reverts to the original value (since Revit wasn't changed)
+            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+            if (selectedItem != null && selectedItem.Schedule != null)
             {
-                // Refresh the DataGrid to show the updated value
-                var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
-                if (selectedItem != null && selectedItem.Schedule != null)
-                {
-                    LoadScheduleData(selectedItem.Schedule);
-                    bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
-                        ? _scheduleItemizeSettings[selectedItem.Id] 
-                        : true;
-                    RefreshScheduleView(isItemized);
-                    ApplyCurrentSortLogic();
-                }
+                LoadScheduleData(selectedItem.Schedule);
+                bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
+                    ? _scheduleItemizeSettings[selectedItem.Id] 
+                    : true;
+                RefreshScheduleView(isItemized);
+                ApplyCurrentSortLogic();
             }
         }
 
@@ -1175,8 +1182,8 @@ namespace ProSchedules.UI
                     });
                 }
 
-                string folder = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules");
-                if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder);
+                string folder = GetProjectSettingsFolder();
+                // if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder); // Helper does it
 
                 string file = System.IO.Path.Combine(folder, "sort_settings.json");
                 string json = Newtonsoft.Json.JsonConvert.SerializeObject(dtos, Newtonsoft.Json.Formatting.Indented);
@@ -1192,7 +1199,8 @@ namespace ProSchedules.UI
         {
             try
             {
-                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules", "sort_settings.json");
+                string folder = GetProjectSettingsFolder();
+                string file = System.IO.Path.Combine(folder, "sort_settings.json");
                 if (System.IO.File.Exists(file))
                 {
                     string json = System.IO.File.ReadAllText(file);
@@ -2999,13 +3007,8 @@ namespace ProSchedules.UI
         {
             try
             {
-                string dir = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules");
-                if (!System.IO.Directory.Exists(dir))
-                {
-                    System.IO.Directory.CreateDirectory(dir);
-                }
-                
-                string file = System.IO.Path.Combine(dir, "last_schedule.txt");
+                string folder = GetProjectSettingsFolder();
+                string file = System.IO.Path.Combine(folder, "last_schedule.txt");
                 System.IO.File.WriteAllText(file, scheduleName ?? "");
                 _lastSelectedScheduleName = scheduleName;
             }
@@ -3019,7 +3022,8 @@ namespace ProSchedules.UI
         {
             try
             {
-                string file = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "RK Tools", "ProSchedules", "last_schedule.txt");
+                string folder = GetProjectSettingsFolder();
+                string file = System.IO.Path.Combine(folder, "last_schedule.txt");
                 if (System.IO.File.Exists(file))
                 {
                     string scheduleName = System.IO.File.ReadAllText(file);
@@ -3035,6 +3039,45 @@ namespace ProSchedules.UI
             return null;
         }
 
+
+        #endregion
+
+        #region Helpers
+
+        private string GetProjectSettingsFolder()
+        {
+            try
+            {
+                string docTitle = "Default";
+                if (_uiApplication?.ActiveUIDocument?.Document != null)
+                {
+                    docTitle = _uiApplication.ActiveUIDocument.Document.Title;
+                    // Remove extension if present
+                    if (docTitle.EndsWith(".rvt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        docTitle = docTitle.Substring(0, docTitle.Length - 4);
+                    }
+                }
+
+                // Use Roaming AppData for user settings: %APPDATA%\RK Tools\ProSchedules\{ProjectName}
+                string folder = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), 
+                    "RK Tools", "ProSchedules", docTitle);
+
+                if (!System.IO.Directory.Exists(folder))
+                {
+                    System.IO.Directory.CreateDirectory(folder);
+                }
+                
+                return folder;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting settings folder: {ex.Message}");
+                // Fallback
+                return System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "RK Tools", "ProSchedules", "Default");
+            }
+        }
 
         #endregion
 

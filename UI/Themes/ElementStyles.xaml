@@ -1100,5 +1100,12 @@
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
     </Style>
+    <!-- DataGrid Editing Style: Enforce Black text on White background for visibility -->
+    <Style x:Key="DataGridEditingStyle" TargetType="{x:Type TextBox}">
+        <Setter Property="Foreground" Value="Black" />
+        <Setter Property="Background" Value="White" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="2,0,2,0" />
+    </Style>
 </ResourceDictionary>
 

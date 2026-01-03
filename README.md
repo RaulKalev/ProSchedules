@@ -53,6 +53,17 @@ The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** 
 - **Checkbox Autofill**:
   - Drag the fill handle while holding `Ctrl` to fast-check/uncheck multiple rows.
 
+### 🔔 Smart Update System
+- **Update Notification**: Automatically detects new versions and displays a rich "What's New" changelog popup on startup.
+- **Project-Aware Settings**:
+  - Persists "Last Selected Schedule" and "Sort Criteria" specifically for each Revit project.
+  - Automatically restores your preferred workflow when you switch between projects.
+- **Robust Error Handling**:
+  - Automatically reverts invalid parameter edits (e.g., values rejected by Revit) to keep the DataGrid in sync with the model.
+
+### 🛡️ Security
+- **Code Signing**: All Release builds are automatically signed with a self-signed certificate (`RKToolsCert.pfx`), establishing trust and preventing "Publisher Unknown" warnings in Revit.
+
 ### 🎨 Modern UI/UX
 - **Material Design**: Sleek, dark-themed interface using Material Design for XAML.
 - **Custom Window Chrome**: Borderless windows with custom title bars, resizing, and docking.
