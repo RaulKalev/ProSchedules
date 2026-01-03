@@ -56,6 +56,7 @@ namespace ProSchedules.Services
                 {
                     fields.Add(field);
                     data.Columns.Add(field.GetName());
+                    data.ParameterIds.Add(field.ParameterId);
                 }
             }
 
@@ -71,10 +72,12 @@ namespace ProSchedules.Services
             if (!data.Columns.Contains("ElementId"))
             {
                 data.Columns.Insert(0, "ElementId");
+                data.ParameterIds.Insert(0, ElementId.InvalidElementId); // Placeholder
             }
             if (!data.Columns.Contains("TypeName"))
             {
                 data.Columns.Insert(1, "TypeName");
+                data.ParameterIds.Insert(1, ElementId.InvalidElementId); // Placeholder
             }
 
             foreach (Element el in elements)

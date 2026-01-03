@@ -105,6 +105,7 @@ namespace ProSchedules.UI
         private List<SheetItem> _allSheets;
         private Action _onPopupClose;
         private Action _onConfirmAction;
+        private Action _onCancelAction;
         private Action _onDeleteConfirmAction;
         private ExternalEvent _externalEvent;
         private ExternalEvents.SheetDuplicationHandler _handler;
@@ -126,6 +127,8 @@ namespace ProSchedules.UI
         private ExternalEvents.ScheduleFieldsHandler _scheduleFieldsHandler;
         private ExternalEvent _parameterLoadExternalEvent;
         private ExternalEvents.ParameterDataLoadHandler _parameterLoadHandler;
+        private ExternalEvent _parameterValueUpdateExternalEvent;
+        private ExternalEvents.ParameterValueUpdateHandler _parameterValueUpdateHandler;
 
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
@@ -182,6 +185,9 @@ namespace ProSchedules.UI
             _parameterLoadHandler.OnDataLoaded += OnParameterDataLoaded;
             _parameterLoadExternalEvent = ExternalEvent.Create(_parameterLoadHandler);
 
+            // Create parameter value update handler
+            _parameterValueUpdateHandler = new ExternalEvents.ParameterValueUpdateHandler();
+            _parameterValueUpdateExternalEvent = ExternalEvent.Create(_parameterValueUpdateHandler);
 
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             DeferWindowShow();
@@ -700,6 +706,10 @@ namespace ProSchedules.UI
             }
             
             SheetsDataGrid.ItemsSource = new System.Data.DataView(viewTable);
+            
+            // Subscribe to cell editing event (unsubscribe first to avoid duplicates)
+            SheetsDataGrid.CellEditEnding -= SheetsDataGrid_CellEditEnding;
+            SheetsDataGrid.CellEditEnding += SheetsDataGrid_CellEditEnding;
         }
 
         private void Itemize_Checked(object sender, RoutedEventArgs e)
@@ -722,6 +732,115 @@ namespace ProSchedules.UI
                 // Calling ApplyCurrentSortLogic will see the 'false' setting and trigger RefreshScheduleView(false) internally
                 // Then it will proceed to apply SortDescriptions.
                 ApplyCurrentSortLogic();
+            }
+        }
+
+        private async void SheetsDataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+        {
+            if (e.EditAction != DataGridEditAction.Commit) return;
+            
+            // Get the edited cell data
+            var row = e.Row.Item as System.Data.DataRowView;
+            if (row == null || _currentScheduleData == null) return;
+
+            string columnName = e.Column.Header?.ToString();
+            if (string.IsNullOrEmpty(columnName)) return;
+
+            // Skip non-parameter columns
+            var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "TypeName", "Count" };
+            if (skipColumns.Contains(columnName)) return;
+
+            // Get the new value from the editing element
+            var editingElement = e.EditingElement as System.Windows.Controls.TextBox;
+            if (editingElement == null) return;
+
+            string newValue = editingElement.Text;
+            string oldValue = row[columnName]?.ToString() ?? "";
+
+            // If value hasn't changed, skip
+            if (newValue == oldValue) return;
+
+            // Get element ID from the row
+            if (!row.Row.Table.Columns.Contains("ElementId")) return;
+            string elementIdStr = row["ElementId"]?.ToString();
+            if (string.IsNullOrEmpty(elementIdStr)) return;
+
+            // Find the parameter ID for this column
+            int columnIndex = _currentScheduleData.Columns.IndexOf(columnName);
+            if (columnIndex < 0 || columnIndex >= _currentScheduleData.ParameterIds.Count) return;
+
+            ElementId parameterId = _currentScheduleData.ParameterIds[columnIndex];
+            
+            // Check if it's a type parameter
+            bool isTypeParameter = _currentScheduleData.IsTypeParameter.ContainsKey(columnName) && 
+                                   _currentScheduleData.IsTypeParameter[columnName];
+
+            // Show confirmation for type parameters
+            if (isTypeParameter)
+            {
+                // Store values for the confirmation callback
+                var tempElementIdStr = elementIdStr;
+                var tempParameterId = parameterId;
+                var tempNewValue = newValue;
+                var tempOldValue = oldValue;
+                var tempRow = row;
+                var tempColumnName = columnName;
+
+                ShowConfirmationPopup(
+                    "Type Parameter Warning",
+                    "This is a TYPE parameter. Changing it will affect ALL elements of this type.\n\nDo you want to proceed?",
+                    () => PerformParameterUpdate(tempElementIdStr, tempParameterId, tempNewValue, tempOldValue, tempRow, tempColumnName),
+                    () => 
+                    {
+                        // Cancelled - revert the value in the UI
+                        // Since CellEditEnding happens after commit, the DataTable has the new value.
+                        // We need to set it back to the old value.
+                        tempRow.Row[tempColumnName] = tempOldValue;
+                    });
+                return;
+            }
+
+            // For instance parameters, update immediately
+            PerformParameterUpdate(elementIdStr, parameterId, newValue, oldValue, row, columnName);
+        }
+
+        private async void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue, 
+                                                  string oldValue, System.Data.DataRowView row, string columnName)
+        {
+            // Update the parameter value via external event
+            _parameterValueUpdateHandler.ElementIdStr = elementIdStr;
+            _parameterValueUpdateHandler.ParameterIdStr = parameterId.Value.ToString();
+            _parameterValueUpdateHandler.NewValue = newValue;
+
+            _parameterValueUpdateExternalEvent.Raise();
+
+            // Wait a bit for the command to complete
+            await System.Threading.Tasks.Task.Delay(100);
+
+            // Check if it was successful
+            if (!_parameterValueUpdateHandler.Success)
+            {
+                ShowPopup("Parameter Update Error", 
+                         string.IsNullOrEmpty(_parameterValueUpdateHandler.ErrorMessage) 
+                            ? "Failed to update parameter value" 
+                            : _parameterValueUpdateHandler.ErrorMessage);
+                            
+                // Revert the change in the UI
+                row[columnName] = oldValue;
+            }
+            else
+            {
+                // Refresh the DataGrid to show the updated value
+                var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                if (selectedItem != null && selectedItem.Schedule != null)
+                {
+                    LoadScheduleData(selectedItem.Schedule);
+                    bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
+                        ? _scheduleItemizeSettings[selectedItem.Id] 
+                        : true;
+                    RefreshScheduleView(isItemized);
+                    ApplyCurrentSortLogic();
+                }
             }
         }
 
@@ -1804,17 +1923,21 @@ namespace ProSchedules.UI
                 var dataGrid = sender as DataGrid;
                 if (dataGrid?.SelectedItems != null && dataGrid.SelectedItems.Count > 0)
                 {
-                    e.Handled = true;
-                    
-                    var selectedSheets = dataGrid.SelectedItems.Cast<SheetItem>().ToList();
-                    bool newState = !selectedSheets.First().IsSelected;
-                    
-                    foreach (var sheet in selectedSheets)
+                    // Check if items are SheetItem (Duplicate Sheets mode)
+                    if (dataGrid.SelectedItems[0] is SheetItem)
                     {
-                        sheet.IsSelected = newState;
+                        e.Handled = true;
+                        
+                        var selectedSheets = dataGrid.SelectedItems.Cast<SheetItem>().ToList();
+                        bool newState = !selectedSheets.First().IsSelected;
+                        
+                        foreach (var sheet in selectedSheets)
+                        {
+                            sheet.IsSelected = newState;
+                        }
+                        
+                        dataGrid.Items.Refresh();
                     }
-                    
-                    dataGrid.Items.Refresh();
                 }
             }
         }
@@ -1993,11 +2116,13 @@ namespace ProSchedules.UI
             PopupTitle.Text = title;
             PopupMessage.Text = message;
             _onPopupClose = onCloseAction;
+            MainContentGrid.IsEnabled = false;
             PopupOverlay.Visibility = System.Windows.Visibility.Visible;
         }
 
         private void ClosePopup()
         {
+            MainContentGrid.IsEnabled = true;
             PopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
             if (_onPopupClose != null)
             {
@@ -2014,6 +2139,46 @@ namespace ProSchedules.UI
 
         private void PopupBackground_Click(object sender, MouseButtonEventArgs e)
         {
+        }
+
+        public void ShowConfirmationPopup(string title, string message, Action onConfirmAction, Action onCancelAction = null)
+        {
+            ConfirmationTitle.Text = title;
+            ConfirmationMessage.Text = message;
+            _onConfirmAction = onConfirmAction;
+            _onCancelAction = onCancelAction;
+            MainContentGrid.IsEnabled = false;
+            ConfirmationPopupOverlay.Visibility = System.Windows.Visibility.Visible;
+        }
+
+        private void ConfirmationOK_Click(object sender, RoutedEventArgs e)
+        {
+            MainContentGrid.IsEnabled = true;
+            ConfirmationPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+            if (_onConfirmAction != null)
+            {
+                var action = _onConfirmAction;
+                _onConfirmAction = null;
+                _onCancelAction = null;
+                action.Invoke();
+            }
+        }
+
+        private void ConfirmationCancel_Click(object sender, RoutedEventArgs e)
+        {
+            MainContentGrid.IsEnabled = true;
+            ConfirmationPopupOverlay.Visibility = System.Windows.Visibility.Collapsed;
+            if (_onCancelAction != null)
+            {
+                var action = _onCancelAction;
+                _onCancelAction = null;
+                _onConfirmAction = null;
+                action.Invoke();
+            }
+            else
+            {
+                _onConfirmAction = null;
+            }
         }
 
         private void ShowConfirmPopup(string title, string message, Action onConfirmAction, string confirmButtonText = "Discard")

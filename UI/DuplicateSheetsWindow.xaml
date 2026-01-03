@@ -37,6 +37,37 @@
 
 
             
+            <Style x:Key="CustomCancelButtonStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource CustomActionButtonStyle}">
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type Button}">
+                            <Border
+                                x:Name="ButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="5">
+                                <ContentPresenter
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Content="{TemplateBinding Content}" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <!--  Hover Effect  -->
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="ButtonBorder" Property="Background" Value="#FF6B6B" />
+                                    <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="#FF6B6B" />
+                                </Trigger>
+                                <!--  Pressed Effect  -->
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="ButtonBorder" Property="Background" Value="#D32F2F" />
+                                    <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource BorderBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -60,7 +91,7 @@
             Margin="2"
             Background="{DynamicResource PrimaryBackgroundBrush}"
             CornerRadius="10">
-            <Grid PreviewMouseDown="Window_PreviewMouseDown">
+            <Grid x:Name="MainContentGrid" PreviewMouseDown="Window_PreviewMouseDown">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="30" />
                     <!-- Row 0: Title bar -->
@@ -857,6 +888,47 @@
                 </Grid>
             </Grid>
         </Border>
+
+        <!-- Confirmation Popup Overlay -->
+        <Grid x:Name="ConfirmationPopupOverlay" Visibility="Collapsed" Background="#AA000000">
+            <Border Background="{DynamicResource PrimaryBackgroundBrush}"
+                    BorderBrush="{DynamicResource BorderBrush}"
+                    BorderThickness="2"
+                    CornerRadius="8"
+                    Width="400"
+                    Padding="20"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+                <StackPanel>
+                    <TextBlock x:Name="ConfirmationTitle"
+                               Text="Confirmation"
+                               FontSize="16"
+                               FontWeight="Bold"
+                               Foreground="{DynamicResource ForegroundBrush}"
+                               Margin="0,0,0,15"/>
+                    <TextBlock x:Name="ConfirmationMessage"
+                               Text="Are you sure?"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource ForegroundBrush}"
+                               Margin="0,0,0,20"/>
+                    <StackPanel Orientation="Horizontal"
+                                HorizontalAlignment="Right">
+                        <Button Content="OK"
+                                Click="ConfirmationOK_Click"
+                                Style="{StaticResource CustomActionButtonStyle}"
+                                Width="100"
+                                Height="35"
+                                Margin="0,0,10,0"/>
+                        <Button Content="Cancel"
+                                Click="ConfirmationCancel_Click"
+                                Style="{StaticResource CustomCancelButtonStyle}"
+                                Width="100"
+                                Height="35"
+                                Margin="0,0,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- Resize edges -->
         <Border x:Name="LeftEdge" Width="5" HorizontalAlignment="Left" VerticalAlignment="Stretch"
