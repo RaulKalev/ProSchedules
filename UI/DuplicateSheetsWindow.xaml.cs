@@ -19,6 +19,7 @@ using System.Windows.Media;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using System.Data;
+using ProSchedules.ExternalEvents;
 
 namespace ProSchedules.UI
 {
@@ -191,6 +192,7 @@ namespace ProSchedules.UI
 
             // Create parameter value update handler
             _parameterValueUpdateHandler = new ExternalEvents.ParameterValueUpdateHandler();
+            _parameterValueUpdateHandler.OnUpdateFinished += OnParameterValueUpdateFinished;
             _parameterValueUpdateExternalEvent = ExternalEvent.Create(_parameterValueUpdateHandler);
 
             // Create highlight in model handler
@@ -894,41 +896,18 @@ namespace ProSchedules.UI
             PerformParameterUpdate(elementIdStr, parameterId, newValue, oldValue, row, columnName);
         }
 
-        private async void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue, 
+        private void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue, 
                                                   string oldValue, System.Data.DataRowView row, string columnName)
         {
             // Update the parameter value via external event
+            _parameterValueUpdateHandler.IsBatchMode = false;
             _parameterValueUpdateHandler.ElementIdStr = elementIdStr;
             _parameterValueUpdateHandler.ParameterIdStr = parameterId.Value.ToString();
             _parameterValueUpdateHandler.NewValue = newValue;
 
             _parameterValueUpdateExternalEvent.Raise();
-
-            // Wait a bit for the command to complete
-            await System.Threading.Tasks.Task.Delay(100);
-
-            // Check if it was successful
-            if (!_parameterValueUpdateHandler.Success)
-            {
-                ShowPopup("Parameter Update Error", 
-                         string.IsNullOrEmpty(_parameterValueUpdateHandler.ErrorMessage) 
-                            ? "Failed to update parameter value" 
-                            : _parameterValueUpdateHandler.ErrorMessage);
-            }
-
-            // Always Refresh the DataGrid to ensure UI matches Revit state
-            // On Success: Shows the new value
-            // On Failure: Reverts to the original value (since Revit wasn't changed)
-            var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
-            if (selectedItem != null && selectedItem.Schedule != null)
-            {
-                LoadScheduleData(selectedItem.Schedule);
-                bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
-                    ? _scheduleItemizeSettings[selectedItem.Id] 
-                    : true;
-                RefreshScheduleView(isItemized);
-                ApplyCurrentSortLogic();
-            }
+            
+            // UI Update is now handled by OnParameterValueUpdateFinished
         }
 
         private void OnDuplicationFinished(int success, int fail, string errorMsg, List<ElementId> newSheetIds)
@@ -1853,6 +1832,39 @@ namespace ProSchedules.UI
             });
         }
 
+        private void OnParameterValueUpdateFinished(int success, int fail, string errorMsg)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // Reload schedule data to show updated values from Revit
+                var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
+                if (selectedItem?.Schedule != null)
+                {
+                    LoadScheduleData(selectedItem.Schedule);
+
+                    // Restore itemize setting and refresh view
+                    bool itemize = true;
+                    if (_scheduleItemizeSettings.ContainsKey(selectedItem.Id))
+                    {
+                        itemize = _scheduleItemizeSettings[selectedItem.Id];
+                    }
+                    RefreshScheduleView(itemize);
+                    ApplyCurrentSortLogic();
+                }
+
+                // Show error if failed
+                if (fail > 0 || !string.IsNullOrEmpty(errorMsg))
+                {
+                    string msg = string.IsNullOrEmpty(errorMsg) ? "Operation failed." : errorMsg;
+                    if (fail > 0) msg += $"\nFailures: {fail}";
+                    if (success > 0) msg += $"\nSuccess: {success}";
+                    
+                    ShowPopup("Update Report", msg);
+                }
+                // No popup for pure success to avoid annoying the user on every cell edit
+            });
+        }
+
 
         private void RenameCancel_Click(object sender, RoutedEventArgs e)
         {
@@ -2366,73 +2378,24 @@ namespace ProSchedules.UI
             return original;
         }
 
-        private async void ExecuteBatchUpdates(List<ParameterUpdateInfo> updates)
+        private void ExecuteBatchUpdates(List<ParameterUpdateInfo> updates)
         {
-            // We optimize by detecting duplicates for Type Parameters?
-            // If I have 10 rows of Type A, I assume updating one updates all.
-            // But the API call might just do it 10 times.
-            // For safety and simplicity, sending one by one is fine unless performance is hit.
-            // Better: Perform all updates.
-            // Actually, we should probably update the UI first?
-            // "if they approve the change the changes get applied and datagrid refreshed"
-            
-            // We can raise events sequentially?
-            // Or create a Bulk Update Handler?
-            // _parameterValueUpdateHandler handles ONE value.
-            // I should loops.
-            
-            int successCount = 0;
-            int failCount = 0;
-            string lastError = "";
+            if (updates == null || updates.Count == 0) return;
 
-            // Show loading?
-            
+            var batchData = new List<ParameterBatchData>();
             foreach (var update in updates)
             {
-                _parameterValueUpdateHandler.ElementIdStr = update.ElementIdStr;
-                _parameterValueUpdateHandler.ParameterIdStr = update.ParameterId.Value.ToString();
-                _parameterValueUpdateHandler.NewValue = update.NewValue;
-
-                _parameterValueUpdateExternalEvent.Raise();
-
-                // Wait for completion (simple spin wait or delay loop)
-                // Since ExternalEvent is async, we need to wait for the handler to finish.
-                // This approach is slow for many items.
-                // Ideally we'd have a specific BulkUpdate handler.
-                // But for now, we iterate.
-                
-                await System.Threading.Tasks.Task.Delay(50); // Small delay to allow Revit to catch up
-                
-                // We don't get individual feedback per item easily unless we track state.
-                // Helper just sets Success property.
-                if (!_parameterValueUpdateHandler.Success)
+                batchData.Add(new ParameterBatchData
                 {
-                    failCount++;
-                    lastError = _parameterValueUpdateHandler.ErrorMessage;
-                }
-                else
-                {
-                    successCount++;
-                    // Update Local DataTableRow specifically to avoid full reload flickers?
-                    // But Type Params update other rows too.
-                    // So we must Reload at the end.
-                }
+                    ElementIdStr = update.ElementIdStr,
+                    ParameterId = update.ParameterId,
+                    Value = update.NewValue
+                });
             }
 
-            // Reload Data
-            Dispatcher.Invoke(() =>
-            {
-                 var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
-                 if (selectedItem != null && selectedItem.Schedule != null)
-                 {
-                     LoadScheduleData(selectedItem.Schedule);
-                     bool isItemized = _scheduleItemizeSettings.ContainsKey(selectedItem.Id) 
-                         ? _scheduleItemizeSettings[selectedItem.Id] 
-                         : true;
-                     RefreshScheduleView(isItemized);
-                     ApplyCurrentSortLogic();
-                 }
-            });
+            _parameterValueUpdateHandler.IsBatchMode = true;
+            _parameterValueUpdateHandler.BatchData = batchData;
+            _parameterValueUpdateExternalEvent.Raise();
         }
 
         private class ParameterUpdateInfo
