@@ -79,6 +79,7 @@ namespace ProSchedules.UI
         {
             _parent.ApplyFilterLogic();
             _parent.CommitFilterSettings();
+            _parent.SaveSettingsToStorage();
             CreateCheckpoint();
         }
 
@@ -87,6 +88,7 @@ namespace ProSchedules.UI
             FilterCriteria.Clear();
             _parent.ApplyFilterLogic();
             _parent.CommitFilterSettings();
+            _parent.SaveSettingsToStorage();
             CreateCheckpoint();
         }
 

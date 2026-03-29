@@ -31,5 +31,7 @@
     <SolidColorBrush x:Key="SelectionHoverBrush" Color="{StaticResource SelectionHoverColor}" />
     <SolidColorBrush x:Key="SelectionPressedBrush" Color="{StaticResource SelectionPressedColor}" />
     <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="{StaticResource ScrollBarThumbColor}" />
+    <SolidColorBrush x:Key="BlankLineBrush" Color="#FF464646" />
+    <SolidColorBrush x:Key="FooterLineBrush" Color="#FF3C4A5A" />
 
 </ResourceDictionary>

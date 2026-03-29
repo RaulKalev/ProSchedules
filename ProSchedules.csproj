@@ -89,6 +89,8 @@
 		</None>
         <EmbeddedResource Remove="Assets\ProSchedules.tiff" />
         <Resource Include="Assets\ProSchedules.tiff" />
+        <Resource Include="Assets\Dark - ProSchedules.tiff" />
+        <Resource Include="Assets\Light - ProSchedules.tiff" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -41,7 +41,21 @@ namespace ProSchedules.UI
         
         // Visual placeholders matching screenshot
         public bool ShowHeader { get; set; }
-        public bool ShowFooter { get; set; }
+
+        private bool _showFooter;
+        public bool ShowFooter
+        {
+            get => _showFooter;
+            set { _showFooter = value; OnPropertyChanged(nameof(ShowFooter)); }
+        }
+
+        private string _footerOption = "Title, count, and totals";
+        public string FooterOption
+        {
+            get => _footerOption;
+            set { _footerOption = value; OnPropertyChanged(nameof(FooterOption)); }
+        }
+
         public bool ShowBlankLine { get; set; }
 
         public SortItem Clone()
@@ -52,6 +66,7 @@ namespace ProSchedules.UI
                 IsAscending = this.IsAscending,
                 ShowHeader = this.ShowHeader,
                 ShowFooter = this.ShowFooter,
+                FooterOption = this.FooterOption,
                 ShowBlankLine = this.ShowBlankLine
             };
         }
@@ -139,6 +154,8 @@ namespace ProSchedules.UI
 
         private ExternalEvent _parameterValueUpdateExternalEvent;
         private ExternalEvents.ParameterValueUpdateHandler _parameterValueUpdateHandler;
+        private ExternalEvents.SaveUserSettingsHandler _saveSettingsHandler;
+        private ExternalEvent _saveSettingsExternalEvent;
 
         public ObservableCollection<SheetItem> Sheets { get; set; } = new ObservableCollection<SheetItem>();
         public ObservableCollection<SheetItem> FilteredSheets { get; set; } = new ObservableCollection<SheetItem>();
@@ -202,6 +219,10 @@ namespace ProSchedules.UI
             _highlightInModelHandler = new ExternalEvents.HighlightInModelHandler();
             _highlightInModelExternalEvent = ExternalEvent.Create(_highlightInModelHandler);
 
+            // Create save user settings handler (extensible storage)
+            _saveSettingsHandler = new ExternalEvents.SaveUserSettingsHandler();
+            _saveSettingsExternalEvent = ExternalEvent.Create(_saveSettingsHandler);
+
 
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             DeferWindowShow();
@@ -233,8 +254,7 @@ namespace ProSchedules.UI
             DataContext = this;
 
             // Load persistent settings (must be before LoadData so they're available when schedule is restored)
-            LoadSortSettings();
-            LoadFilterSettings();
+            LoadSettingsFromStorage(app.ActiveUIDocument.Document);
             
             LoadData(app.ActiveUIDocument.Document);
 
@@ -251,8 +271,7 @@ namespace ProSchedules.UI
 
         private void MainWindow_Closed(object sender, EventArgs e)
         {
-            SaveSortSettings();
-            SaveFilterSettings();
+            SaveSettingsToStorage();
             SaveWindowState();
         }
 
@@ -469,6 +488,30 @@ namespace ProSchedules.UI
             var cellStyle = new Style(typeof(DataGridCell), baseStyle);
             cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.HorizontalAlignmentProperty, System.Windows.HorizontalAlignment.Center));
             cellStyle.Setters.Add(new Setter(System.Windows.Controls.Control.VerticalAlignmentProperty, System.Windows.VerticalAlignment.Center));
+
+            // Hide checkbox cell content on blank separator rows
+            var blankRowTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("RowState"),
+                Value = "BlankLine"
+            };
+            blankRowTrigger.Setters.Add(new Setter(DataGridCell.ContentTemplateProperty, new DataTemplate()));
+            blankRowTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.IsEnabledProperty, false));
+            blankRowTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty,
+                new System.Windows.DynamicResourceExtension("BlankLineBrush")));
+            cellStyle.Triggers.Add(blankRowTrigger);
+
+            // Hide checkbox cell content on footer rows
+            var footerRowTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("RowState"),
+                Value = "FooterLine"
+            };
+            footerRowTrigger.Setters.Add(new Setter(DataGridCell.ContentTemplateProperty, new DataTemplate()));
+            footerRowTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.IsEnabledProperty, false));
+            footerRowTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty,
+                new System.Windows.DynamicResourceExtension("FooterLineBrush")));
+            cellStyle.Triggers.Add(footerRowTrigger);
 
             // Create template for checkbox cells
             var cellTemplate = new DataTemplate();
@@ -738,11 +781,16 @@ namespace ProSchedules.UI
 
         private void RefreshScheduleView(bool itemize)
         {
-            System.Data.DataTable viewTable = _rawScheduleData;
-            
-            if (!itemize && viewTable != null)
+            System.Data.DataTable viewTable;
+
+            if (HasAnySpecialRows())
             {
-                viewTable = viewTable.Clone();
+                // Pre-sorted table with blank/footer rows baked in
+                viewTable = BuildSortedTableWithBlanks(itemize);
+            }
+            else if (!itemize && _rawScheduleData != null)
+            {
+                viewTable = _rawScheduleData.Clone();
                 // Group by sorting rules
                 var validSorts = SortCriteria.Where(s => s.SelectedColumn != "(none)" && !string.IsNullOrEmpty(s.SelectedColumn))
                                              .Select(s => s.SelectedColumn)
@@ -760,23 +808,29 @@ namespace ProSchedules.UI
                 
                 foreach(var grp in grouped)
                 {
-                    var firstRow = grp.First();
+                    var grpList = grp.ToList();
+                    var firstRow = grpList[0];
                     var newRow = viewTable.NewRow();
-                    newRow.ItemArray = firstRow.ItemArray;
-                    newRow["Count"] = grp.Count();
+                    newRow.ItemArray = (object[])firstRow.ItemArray.Clone();
+                    newRow["Count"] = grpList.Count;
 
                     // Aggregate ElementIds if present
                     if (viewTable.Columns.Contains("ElementId"))
                     {
-                        var ids = grp.Select(r => r["ElementId"]?.ToString())
+                        var ids = grpList.Select(r => r["ElementId"]?.ToString())
                                      .Where(s => !string.IsNullOrEmpty(s));
                         newRow["ElementId"] = string.Join(",", ids);
                     }
 
+                    ApplyVaries(grpList, newRow, validSorts);
                     viewTable.Rows.Add(newRow);
                 }
             }
-            
+            else
+            {
+                viewTable = _rawScheduleData;
+            }
+
             SheetsDataGrid.ItemsSource = null;
             SheetsDataGrid.Columns.Clear();
             SheetsDataGrid.AutoGenerateColumns = false;
@@ -792,7 +846,48 @@ namespace ProSchedules.UI
             };
             cellTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, new SolidColorBrush(Colors.Yellow) { Opacity = 0.5 }));
             cellStyle.Triggers.Add(cellTrigger);
-            
+
+            var blankLineTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("RowState"),
+                Value = "BlankLine"
+            };
+            var blankBrush = new System.Windows.DynamicResourceExtension("BlankLineBrush");
+            blankLineTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, blankBrush));
+            blankLineTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.IsEnabledProperty, false));
+            cellStyle.Triggers.Add(blankLineTrigger);
+
+            var footerLineTrigger = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("RowState"),
+                Value = "FooterLine"
+            };
+            var footerBrush = new System.Windows.DynamicResourceExtension("FooterLineBrush");
+            footerLineTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.BackgroundProperty, footerBrush));
+            footerLineTrigger.Setters.Add(new Setter(System.Windows.Controls.Control.IsEnabledProperty, false));
+            cellStyle.Triggers.Add(footerLineTrigger);
+
+            // Row-level style: colors the whole row (including checkbox column) for blank/footer rows
+            var baseRowStyle = FindResource("ExcelLikeRowStyle") as Style;
+            var rowStyle = new Style(typeof(DataGridRow), baseRowStyle);
+            var blankRowTrigger2 = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("Row[RowState]"),
+                Value = "BlankLine"
+            };
+            blankRowTrigger2.Setters.Add(new Setter(DataGridRow.BackgroundProperty,
+                new System.Windows.DynamicResourceExtension("BlankLineBrush")));
+            rowStyle.Triggers.Add(blankRowTrigger2);
+            var footerRowTrigger2 = new DataTrigger
+            {
+                Binding = new System.Windows.Data.Binding("Row[RowState]"),
+                Value = "FooterLine"
+            };
+            footerRowTrigger2.Setters.Add(new Setter(DataGridRow.BackgroundProperty,
+                new System.Windows.DynamicResourceExtension("FooterLineBrush")));
+            rowStyle.Triggers.Add(footerRowTrigger2);
+            SheetsDataGrid.RowStyle = rowStyle;
+
             // First add checkbox column
             var checkCol = CreateCheckBoxColumn();
             SheetsDataGrid.Columns.Add(checkCol);
@@ -835,6 +930,8 @@ namespace ProSchedules.UI
             // Subscribe to cell editing event (unsubscribe first to avoid duplicates)
             SheetsDataGrid.CellEditEnding -= SheetsDataGrid_CellEditEnding;
             SheetsDataGrid.CellEditEnding += SheetsDataGrid_CellEditEnding;
+            SheetsDataGrid.BeginningEdit -= SheetsDataGrid_BeginningEdit;
+            SheetsDataGrid.BeginningEdit += SheetsDataGrid_BeginningEdit;
         }
 
         private void Itemize_Checked(object sender, RoutedEventArgs e)
@@ -1215,7 +1312,10 @@ namespace ProSchedules.UI
                     if (expr != null) parts.Add($"({expr})");
                 }
 
-                dataView.RowFilter = parts.Count > 0 ? string.Join(" AND ", parts) : string.Empty;
+                // Always let separator/footer rows through so they're never hidden by active filters
+                dataView.RowFilter = parts.Count > 0
+                    ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" AND ", parts)})"
+                    : string.Empty;
             }
         }
 
@@ -1223,15 +1323,24 @@ namespace ProSchedules.UI
         {
             if (SheetsDataGrid.ItemsSource == null) return;
 
-            // Check if we are in non-itemized mode (grouped)
-            // If so, we must REFRESH the view to regroup based on new sort criteria
-            if (_currentScheduleData != null && 
-                _scheduleItemizeSettings.ContainsKey(_currentScheduleData.ScheduleId) && 
-                _scheduleItemizeSettings[_currentScheduleData.ScheduleId] == false)
+            bool isNonItemized = _currentScheduleData != null &&
+                                 _scheduleItemizeSettings.ContainsKey(_currentScheduleData.ScheduleId) &&
+                                 _scheduleItemizeSettings[_currentScheduleData.ScheduleId] == false;
+
+            // When blank/footer lines are active the sort order is baked into the DataTable —
+            // we must rebuild rather than apply SortDescriptions on the existing view.
+            if (HasAnySpecialRows())
+            {
+                RefreshScheduleView(!isNonItemized);
+                return;
+            }
+
+            // Non-itemized (grouped) mode must also rebuild to regroup
+            if (isNonItemized)
             {
                 RefreshScheduleView(false);
             }
-            
+
             System.ComponentModel.ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
             view.SortDescriptions.Clear();
 
@@ -1239,18 +1348,278 @@ namespace ProSchedules.UI
             {
                 if (string.IsNullOrEmpty(sortItem.SelectedColumn) || sortItem.SelectedColumn == "(none)") continue;
                 
-                // Map display name to binding path if necessary
                 string propertyName = sortItem.SelectedColumn;
-                
-                // If using DataTable, property name is column name
-                // If using SheetItem, property maps: 
-                if (propertyName == "Sheet Number") propertyName = "SheetNumber"; // SheetItem property
-                else if (propertyName == "Sheet Name") propertyName = "Name"; // SheetItem property
+                if (propertyName == "Sheet Number") propertyName = "SheetNumber";
+                else if (propertyName == "Sheet Name") propertyName = "Name";
                 
                 view.SortDescriptions.Add(new System.ComponentModel.SortDescription(
                     propertyName, 
                     sortItem.IsAscending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending
                 ));
+            }
+        }
+
+        private bool HasAnyBlankLineSorts() =>
+            SortCriteria.Any(s => s.ShowBlankLine &&
+                                  !string.IsNullOrEmpty(s.SelectedColumn) &&
+                                  s.SelectedColumn != "(none)");
+
+        private bool HasAnyFooterSorts() =>
+            SortCriteria.Any(s => s.ShowFooter &&
+                                  !string.IsNullOrEmpty(s.SelectedColumn) &&
+                                  s.SelectedColumn != "(none)");
+
+        private bool HasAnySpecialRows() => HasAnyBlankLineSorts() || HasAnyFooterSorts();
+
+        private System.Data.DataTable BuildSortedTableWithBlanks(bool itemize)
+        {
+            var activeSorts = SortCriteria
+                .Where(s => !string.IsNullOrEmpty(s.SelectedColumn) && s.SelectedColumn != "(none)")
+                .ToList();
+
+            var blankLineSorts = activeSorts
+                .Where(s => s.ShowBlankLine && _rawScheduleData.Columns.Contains(s.SelectedColumn))
+                .ToList();
+
+            var footerSorts = activeSorts
+                .Where(s => s.ShowFooter && _rawScheduleData.Columns.Contains(s.SelectedColumn))
+                .ToList();
+
+            var blankLineCols = blankLineSorts.Select(s => s.SelectedColumn).ToList();
+
+            // Sort raw data via DataView (respects column types)
+            var sortedView = new System.Data.DataView(_rawScheduleData);
+            var sortParts = activeSorts
+                .Where(s => _rawScheduleData.Columns.Contains(s.SelectedColumn))
+                .Select(s => $"[{s.SelectedColumn.Replace("]", "]]")}] {(s.IsAscending ? "ASC" : "DESC")}");
+            string sortExpr = string.Join(", ", sortParts);
+            if (!string.IsNullOrEmpty(sortExpr))
+                sortedView.Sort = sortExpr;
+
+            var result = _rawScheduleData.Clone();
+
+            if (!itemize)
+            {
+                // Grouped mode: merge rows sharing the same composite sort key.
+                // Blank separator: inserted only when blank-line columns change (between groups).
+                // Footer row: inserted only when footer column changes (accumulates count across sub-groups).
+                var groupCols = activeSorts
+                    .Select(s => s.SelectedColumn)
+                    .Where(c => _rawScheduleData.Columns.Contains(c))
+                    .ToList();
+
+                string prevGroupKey      = null;
+                string prevBlankKey      = null;
+                string prevFooterKey     = null;
+                int    footerAccumCount  = 0;
+                System.Data.DataRow footerFirstDataRow = null;
+                var    groupRows         = new List<System.Data.DataRow>();
+
+                void FlushFooter()
+                {
+                    if (footerSorts.Count == 0 || prevFooterKey == null || footerAccumCount == 0) return;
+                    var fr = result.NewRow();
+                    fr["IsSelected"] = false;
+                    fr["RowState"] = "FooterLine";
+                    AddFooterContent(fr, footerSorts[0], footerFirstDataRow, footerAccumCount);
+                    result.Rows.Add(fr);
+                    footerAccumCount = 0;
+                    footerFirstDataRow = null;
+                }
+
+                void FlushGroup()
+                {
+                    if (groupRows.Count == 0) return;
+
+                    string blankKey = blankLineCols.Count > 0
+                        ? string.Join("||", blankLineCols.Select(c =>
+                              groupRows[0].Table.Columns.Contains(c)
+                                  ? groupRows[0][c]?.ToString() ?? ""
+                                  : ""))
+                        : null;
+
+                    string footerKey = footerSorts.Count > 0 && groupRows[0].Table.Columns.Contains(footerSorts[0].SelectedColumn)
+                        ? groupRows[0][footerSorts[0].SelectedColumn]?.ToString() ?? ""
+                        : null;
+
+                    // Footer key changed → emit footer for previous footer group first
+                    if (footerKey != null && prevFooterKey != null && footerKey != prevFooterKey)
+                        FlushFooter();
+
+                    // Blank key changed → emit blank separator
+                    if (prevBlankKey != null && blankKey != prevBlankKey)
+                    {
+                        var blank = result.NewRow();
+                        blank["IsSelected"] = false;
+                        blank["RowState"] = "BlankLine";
+                        result.Rows.Add(blank);
+                    }
+                    prevBlankKey = blankKey;
+
+                    var newRow = result.NewRow();
+                    newRow.ItemArray = (object[])groupRows[0].ItemArray.Clone();
+                    newRow["RowState"] = "Unchanged";
+                    newRow["Count"] = groupRows.Count;
+                    if (result.Columns.Contains("ElementId"))
+                        newRow["ElementId"] = string.Join(",",
+                            groupRows.Select(r => r["ElementId"]?.ToString())
+                                     .Where(s => !string.IsNullOrEmpty(s)));
+
+                    ApplyVaries(groupRows, newRow, groupCols);
+                    result.Rows.Add(newRow);
+
+                    // Accumulate into footer group
+                    if (footerKey != null)
+                    {
+                        if (footerFirstDataRow == null) footerFirstDataRow = groupRows[0];
+                        footerAccumCount += groupRows.Count;
+                        prevFooterKey = footerKey;
+                    }
+
+                    groupRows.Clear();
+                }
+
+                foreach (System.Data.DataRowView drv in sortedView)
+                {
+                    string key = groupCols.Count > 0
+                        ? string.Join("||", groupCols.Select(c => drv[c]?.ToString() ?? ""))
+                        : "";
+                    if (prevGroupKey != null && key != prevGroupKey) FlushGroup();
+                    prevGroupKey = key;
+                    groupRows.Add(drv.Row);
+                }
+                FlushGroup();
+                FlushFooter(); // emit footer for the last footer group
+            }
+            else
+            {
+                // Itemized mode: one row per data row.
+                // Footer and blank rows are emitted when their respective tracked columns change.
+                string prevBlankKey     = null;
+                string prevFooterKey    = null;
+                int    footerAccumCount = 0;
+                System.Data.DataRow footerFirstDataRow = null;
+
+                void FlushFooter()
+                {
+                    if (footerSorts.Count == 0 || prevFooterKey == null || footerAccumCount == 0) return;
+                    var fr = result.NewRow();
+                    fr["IsSelected"] = false;
+                    fr["RowState"] = "FooterLine";
+                    AddFooterContent(fr, footerSorts[0], footerFirstDataRow, footerAccumCount);
+                    result.Rows.Add(fr);
+                    footerAccumCount = 0;
+                    footerFirstDataRow = null;
+                }
+
+                foreach (System.Data.DataRowView drv in sortedView)
+                {
+                    string blankKey = blankLineCols.Count > 0
+                        ? string.Join("||", blankLineCols.Select(c => drv[c]?.ToString() ?? ""))
+                        : null;
+                    string footerKey = footerSorts.Count > 0 && drv.DataView.Table.Columns.Contains(footerSorts[0].SelectedColumn)
+                        ? drv[footerSorts[0].SelectedColumn]?.ToString() ?? ""
+                        : null;
+
+                    // Footer key changed → emit footer for previous group
+                    if (footerKey != null && prevFooterKey != null && footerKey != prevFooterKey)
+                        FlushFooter();
+
+                    // Blank key changed → emit blank separator
+                    if (blankKey != null && prevBlankKey != null && blankKey != prevBlankKey)
+                    {
+                        var blank = result.NewRow();
+                        blank["IsSelected"] = false;
+                        blank["RowState"] = "BlankLine";
+                        result.Rows.Add(blank);
+                    }
+                    prevBlankKey = blankKey;
+                    prevFooterKey = footerKey;
+
+                    // Accumulate into footer group
+                    if (footerKey != null)
+                    {
+                        if (footerFirstDataRow == null) footerFirstDataRow = drv.Row;
+                        footerAccumCount++;
+                    }
+
+                    var dataRow = result.NewRow();
+                    dataRow.ItemArray = (object[])drv.Row.ItemArray.Clone();
+                    result.Rows.Add(dataRow);
+                }
+
+                FlushFooter(); // emit footer for the last group
+            }
+
+            return result;
+        }
+
+        private void AddFooterContent(System.Data.DataRow footerRow, SortItem footerSort,
+                                      System.Data.DataRow firstDataRow, int count)
+        {
+            string opt = footerSort.FooterOption ?? "Title, count, and totals";
+            bool showTitle = opt == "Title, count, and totals" || opt == "Title and totals";
+            bool showCount = opt == "Title, count, and totals" || opt == "Count and totals";
+
+            var parts = new System.Collections.Generic.List<string>();
+
+            if (showTitle && firstDataRow.Table.Columns.Contains(footerSort.SelectedColumn))
+            {
+                string titleVal = firstDataRow[footerSort.SelectedColumn]?.ToString();
+                if (!string.IsNullOrEmpty(titleVal))
+                    parts.Add(titleVal);
+            }
+
+            if (showCount)
+                parts.Add(count.ToString());
+
+            if (parts.Count == 0) return;
+
+            string displayText = string.Join(", ", parts);
+
+            // Place text in the first visible data column (leftmost column shown in the grid)
+            var skipCols = new HashSet<string> { "IsSelected", "RowState", "ElementId", "Count", "TypeName" };
+            foreach (System.Data.DataColumn col in footerRow.Table.Columns)
+            {
+                if (skipCols.Contains(col.ColumnName)) continue;
+                if (System.Text.RegularExpressions.Regex.IsMatch(col.ColumnName, @"\s\(\d+\)$")) continue;
+                footerRow[col.ColumnName] = displayText;
+                break;
+            }
+        }
+
+        /// <summary>
+        /// For any column that isn't a sort/group key column and has differing values across the
+        /// grouped rows, replaces the value in <paramref name="newRow"/> with "&lt;Varies&gt;".
+        /// </summary>
+        private void ApplyVaries(IList<System.Data.DataRow> rows, System.Data.DataRow newRow,
+                                 IList<string> groupKeyCols)
+        {
+            if (rows.Count <= 1) return;
+
+            var skipCols = new HashSet<string> { "IsSelected", "RowState", "ElementId", "Count", "TypeName" };
+
+            foreach (System.Data.DataColumn col in newRow.Table.Columns)
+            {
+                if (skipCols.Contains(col.ColumnName)) continue;
+                if (groupKeyCols != null && groupKeyCols.Contains(col.ColumnName)) continue;
+                if (col.DataType != typeof(string)) continue; // only string columns shown as text
+
+                string first = rows[0][col.ColumnName]?.ToString() ?? "";
+                bool allSame = rows.All(r => (r[col.ColumnName]?.ToString() ?? "") == first);
+                if (!allSame)
+                    newRow[col.ColumnName] = "<Varies>";
+            }
+        }
+
+        private void SheetsDataGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e)
+        {
+            var row = e.Row.Item as System.Data.DataRowView;
+            if (row != null)
+            {
+                var state = row["RowState"]?.ToString();
+                if (state == "BlankLine" || state == "FooterLine")
+                    e.Cancel = true;
             }
         }
 
@@ -1271,94 +1640,15 @@ namespace ProSchedules.UI
 
         #region Persistence
 
-        private void SaveSortSettings()
-        {
-            try
-            {
-                // 1. Commit current schedule settings to dictionary before saving
-                if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
-                {
-                    var list = new ObservableCollection<SortItem>();
-                    foreach(var item in SortCriteria) list.Add(item.Clone());
-                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = list;
-                }
-
-                var dtos = new List<SavedScheduleSort>();
-                foreach(var kvp in _scheduleSortSettings)
-                {
-                    // Use robust ID extraction (Value or IntegerValue)
-                    long idVal = GetIdValue(kvp.Key);
-                    
-                    bool itemize = true;
-                    if (_scheduleItemizeSettings.ContainsKey(kvp.Key)) itemize = _scheduleItemizeSettings[kvp.Key];
-                    
-                    dtos.Add(new SavedScheduleSort 
-                    { 
-                        ScheduleId = idVal, 
-                        Items = kvp.Value.ToList(),
-                        ItemizeEveryInstance = itemize
-                    });
-                }
-
-                string folder = GetProjectSettingsFolder();
-                // if (!System.IO.Directory.Exists(folder)) System.IO.Directory.CreateDirectory(folder); // Helper does it
-
-                string file = System.IO.Path.Combine(folder, "sort_settings.json");
-                string json = Newtonsoft.Json.JsonConvert.SerializeObject(dtos, Newtonsoft.Json.Formatting.Indented);
-                System.IO.File.WriteAllText(file, json);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error saving settings: {ex.Message}");
-            }
-        }
-
-        private void LoadSortSettings()
-        {
-            try
-            {
-                string folder = GetProjectSettingsFolder();
-                string file = System.IO.Path.Combine(folder, "sort_settings.json");
-                if (System.IO.File.Exists(file))
-                {
-                    string json = System.IO.File.ReadAllText(file);
-                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SavedScheduleSort>>(json);
-                    
-                    if (dtos != null)
-                    {
-                        _scheduleSortSettings.Clear();
-                        
-                        foreach(var dto in dtos)
-                        {
-                            // Reconstruct ElementId
-                            // Using the constructor available in older/newer API via helper or #if logic?
-                            // Just use reflection or try generic constructor if possible.
-                            // Actually, ElementId(long) exists in 2024+. ElementId(int) in older.
-                            // Since we target multiple frameworks, let's try to map safely?
-                            // Or just use the constructor that accepts long?
-                            // Warnings earlier said ElementId(int) is deprecated, use ElementId(long).
-                            
-                            ElementId eid = new ElementId((long)dto.ScheduleId);
-                            
-                            _scheduleSortSettings[eid] = new ObservableCollection<SortItem>(dto.Items);
-                            
-                            // Load itemize setting (default true)
-                            _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Error loading settings: {ex.Message}");
-            }
-        }
+        // ---------------------------------------------------------------
+        // DTOs (shared by both save paths)
+        // ---------------------------------------------------------------
 
         private long GetIdValue(ElementId id)
         {
             return id.Value;
         }
-        
+
         public class SavedScheduleSort
         {
             public long ScheduleId { get; set; }
@@ -1372,6 +1662,10 @@ namespace ProSchedules.UI
             public List<Models.FilterItem> Items { get; set; }
         }
 
+        // ---------------------------------------------------------------
+        // CommitFilterSettings — in-memory only, called on Apply/Clear
+        // ---------------------------------------------------------------
+
         internal void CommitFilterSettings()
         {
             if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
@@ -1382,43 +1676,104 @@ namespace ProSchedules.UI
             }
         }
 
-        private void SaveFilterSettings()
+        // ---------------------------------------------------------------
+        // Save — serialise both dicts and raise external event
+        // ---------------------------------------------------------------
+
+        /// <summary>
+        /// Flush current schedule's sort criteria to the dictionary, then save
+        /// all settings to Extensible Storage via ExternalEvent.
+        /// Call from any "Apply" commit point (sort/filter windows) as well as on close.
+        /// </summary>
+        internal void CommitSortSettingsToStorage()
+        {
+            if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
+            {
+                var list = new ObservableCollection<SortItem>();
+                foreach (var item in SortCriteria) list.Add(item.Clone());
+                _scheduleSortSettings[_currentScheduleData.ScheduleId] = list;
+            }
+            SaveSettingsToStorage();
+        }
+
+        internal void SaveSettingsToStorage()
         {
             try
             {
-                var dtos = new List<SavedScheduleFilter>();
+                // Flush current schedule's sort into the dict before saving
+                if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
+                {
+                    var list = new ObservableCollection<SortItem>();
+                    foreach (var item in SortCriteria) list.Add(item.Clone());
+                    _scheduleSortSettings[_currentScheduleData.ScheduleId] = list;
+                }
+
+                // Build sort JSON
+                var sortDtos = new System.Collections.Generic.List<SavedScheduleSort>();
+                foreach (var kvp in _scheduleSortSettings)
+                {
+                    bool itemize = !_scheduleItemizeSettings.TryGetValue(kvp.Key, out bool iv) || iv;
+                    sortDtos.Add(new SavedScheduleSort
+                    {
+                        ScheduleId = GetIdValue(kvp.Key),
+                        Items = kvp.Value.ToList(),
+                        ItemizeEveryInstance = itemize
+                    });
+                }
+                string sortJson = Newtonsoft.Json.JsonConvert.SerializeObject(sortDtos, Newtonsoft.Json.Formatting.Indented);
+
+                // Build filter JSON
+                var filterDtos = new System.Collections.Generic.List<SavedScheduleFilter>();
                 foreach (var kvp in _scheduleFilterSettings)
                 {
-                    long idVal = GetIdValue(kvp.Key);
-                    dtos.Add(new SavedScheduleFilter
+                    filterDtos.Add(new SavedScheduleFilter
                     {
-                        ScheduleId = idVal,
+                        ScheduleId = GetIdValue(kvp.Key),
                         Items = kvp.Value.ToList()
                     });
                 }
+                string filterJson = Newtonsoft.Json.JsonConvert.SerializeObject(filterDtos, Newtonsoft.Json.Formatting.Indented);
 
-                string folder = GetProjectSettingsFolder();
-                string file = System.IO.Path.Combine(folder, "filter_settings.json");
-                string json = Newtonsoft.Json.JsonConvert.SerializeObject(dtos, Newtonsoft.Json.Formatting.Indented);
-                System.IO.File.WriteAllText(file, json);
+                // Raise external event to write to Extensible Storage on Revit's thread
+                _saveSettingsHandler.SortSettingsJson   = sortJson;
+                _saveSettingsHandler.FilterSettingsJson = filterJson;
+                _saveSettingsExternalEvent.Raise();
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error saving filter settings: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Persistence] SaveSettingsToStorage error: {ex.Message}");
             }
         }
 
-        private void LoadFilterSettings()
+        // ---------------------------------------------------------------
+        // Load — read from Extensible Storage (no transaction needed)
+        // ---------------------------------------------------------------
+
+        private void LoadSettingsFromStorage(Document doc)
         {
             try
             {
-                string folder = GetProjectSettingsFolder();
-                string file = System.IO.Path.Combine(folder, "filter_settings.json");
-                if (System.IO.File.Exists(file))
-                {
-                    string json = System.IO.File.ReadAllText(file);
-                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SavedScheduleFilter>>(json);
+                string username = _uiApplication.Application.Username;
+                var (sortJson, filterJson) = Services.ExtensibleStorageService.LoadSettings(doc, username);
 
+                if (!string.IsNullOrWhiteSpace(sortJson))
+                {
+                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<System.Collections.Generic.List<SavedScheduleSort>>(sortJson);
+                    if (dtos != null)
+                    {
+                        _scheduleSortSettings.Clear();
+                        foreach (var dto in dtos)
+                        {
+                            ElementId eid = new ElementId((long)dto.ScheduleId);
+                            _scheduleSortSettings[eid] = new ObservableCollection<SortItem>(dto.Items);
+                            _scheduleItemizeSettings[eid] = dto.ItemizeEveryInstance;
+                        }
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(filterJson))
+                {
+                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<System.Collections.Generic.List<SavedScheduleFilter>>(filterJson);
                     if (dtos != null)
                     {
                         _scheduleFilterSettings.Clear();
@@ -1432,10 +1787,10 @@ namespace ProSchedules.UI
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"Error loading filter settings: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Persistence] LoadSettingsFromStorage error: {ex.Message}");
             }
         }
-        
+
         #endregion
 
         private void AddSortLevel_Click(object sender, RoutedEventArgs e)
@@ -2706,8 +3061,9 @@ namespace ProSchedules.UI
                         .Select(c => $"CONVERT([{c.ColumnName}], System.String) LIKE '%{searchText.Replace("'", "''")}%'")
                         .ToList();
 
+                    // Always let blank separator rows through
                     dataView.RowFilter = filterableCols.Count > 0
-                        ? string.Join(" OR ", filterableCols)
+                        ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" OR ", filterableCols)})"
                         : string.Empty;
                 }
                 return;
@@ -3232,7 +3588,7 @@ namespace ProSchedules.UI
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading schedule name: {ex.Message}");
             }
-            
+
             return null;
         }
 

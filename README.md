@@ -1,121 +1,111 @@
 # ProSchedules
 
-ProSchedules is a powerful Revit add-in designed to streamline sheet management tasks. It automates sheet duplication, renaming, and organization, significantly reducing manual effort for Revit professionals.
+ProSchedules is a powerful Revit add-in designed to streamline schedule management tasks. It provides an advanced schedule viewer with sorting, filtering, grouping, inline editing, and Excel-like interactions — significantly reducing manual effort for Revit professionals.
 
 The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** (.NET 8.0-windows) through multi-targeting.
 
 ## Features
 
-### 📋 Advanced Sheet Duplication
-- **Multiple Modes**:
-  - **Empty Sheet**: Creates new empty sheets.
-  - **With Detailing**: Copies detail lines, text, annotations, tags, and dimensions.
-  - **With Views**: Duplicates sheets along with all placed views (model views, legends, schedules).
-- **Control Options**:
-  - Keep Legends & Schedules (reuse existing instances).
-  - Copy Revisions & Parameters (sheet/titleblock data).
-  - Specify number of copies.
+### 📊 Schedule Viewer
+- Browse all schedules in the active Revit project from a single window.
+- **Itemize / Group** toggle: view every instance individually or collapse rows by sort key.
+- **`<Varies>`** display: grouped rows with differing values across instances clearly show `<Varies>` for those columns.
+- **Real-time search**: filter visible rows across all schedule columns instantly.
 
-### 🔄 Bulk Renaming
-- **Find & Replace**: Batch rename sheets using find/replace logic.
-- **Prefix/Suffix**: Add prefixes or suffixes to sheet numbers and names.
-- **Auto-Numbering**: Intelligent renumbering of duplicated sheets.
+### 🔃 Advanced Sorting
+- Sort by any available schedule column parameter.
+- Multi-level sorting — add multiple criteria and drag to reorder their priority.
+- **Blank line rows**: insert Revit-style separator rows between sort groups.
+- **Footer rows**: append a footer after each sort group with configurable display options:
+  - *Title, count, and totals* / *Title and totals* / *Count and totals* / *Totals only*
+- Settings persist per schedule via **Revit Extensible Storage** (worksharing-safe).
+- "Apply" without closing to preview results live.
 
-### 📊 Schedule Management, Sorting & Filtering
-- **Advanced Sorting**:
-  - Sort sheets/schedules by any available column parameter.
-  - Multi-level sorting (add multiple criteria).
-  - Custom Sorting Window with persistent settings per schedule.
-  - "Apply" without closing to test sort logic.
-  - Drag-resizing and movable windows for better UX.
-- **Advanced Filtering**:
-  - Filter rows by any parameter column using 14 Revit-style conditions: `equals`, `does not equal`, `contains`, `begins with`, `ends with`, `has a value`, `has no value`, and more.
-  - Value field is an editable ComboBox — pick from existing values in the schedule or type a custom value (required for `contains`, `begins with`, etc.).
-  - Multi-rule filtering (all rules apply as AND conditions).
-  - Persistent filter settings per schedule — saved to disk and restored on startup.
-  - Filter rules are only committed when clicking **Apply** — Cancel and closing the window always restores the previous state.
-- **Grouping**: Option to itemize every instance or group by sorting keys.
-- **Search**: Real-time search across all visible schedule columns.
+### 🔎 Advanced Filtering
+- Filter rows by any parameter column using 14 Revit-style conditions:
+  `equals`, `does not equal`, `contains`, `does not contain`, `begins with`, `ends with`, `greater than`, `less than`, `has a value`, `has no value`, and more.
+- Value field is an editable ComboBox — pick from existing values or type a custom value.
+- Multi-rule filtering (all rules apply as AND conditions).
+- Settings persist per schedule via **Revit Extensible Storage**.
+- Rules are only committed when clicking **Apply** — Cancel always restores the previous state.
 
 ### 🖱️ Excel-Like Interaction
-- **Smart Selection**:
-  - Drag-select cells with a cleaner, perimeter-only selection border (no cluttered full-grid highlight).
-  - Handles large selections smoothly with virtualization support.
-- **Auto-Fill & Copy**:
-  - **Sequential Fill**: Drag the fill handle to automatically increment numbers (e.g., "Sheet 1" → "Sheet 2").
-  - **Copy Mode**: Hold `Ctrl` while dragging to perform an exact copy.
-  - **Visual Feedback**: Dynamic crosshair cursor and "Plus" indicator for copy mode.
+- **Inline editing**: edit parameter values directly in the grid; invalid edits are automatically reverted.
+- **Smart selection**: drag-select cells with a perimeter-only selection border.
+- **Auto-fill & copy**:
+  - **Sequential fill**: drag the fill handle to automatically increment numbers (e.g., "Item 1" → "Item 2").
+  - **Copy mode**: hold `Ctrl` while dragging for an exact copy.
+  - **Visual feedback**: dynamic crosshair cursor and "Plus" indicator for copy mode.
+- **Checkbox fill**: drag-fill checkboxes to check/uncheck multiple rows rapidly.
 
-### 🔍 Highlight in Model (New!)
-- **Smart Selection**:
-  - Tick checkboxes to select items (supports both **Sheet Lists** and **Schedule Items**).
-  - **Group Selection**: Selecting a grouped row automatically selects **all** items in that group.
-- **View Management**:
-  - **Smart View Finding**: Prioritizes finding and opening a **Floor Plan** first.
-  - **View Toggling**: Clicking again toggles between **Floor Plan** and **3D View**.
-  - **Focus**: Selects and zooms to fit elements (keeping context visible).
-- **Checkbox Autofill**:
-  - Drag the fill handle while holding `Ctrl` to fast-check/uncheck multiple rows.
+### 🔍 Highlight in Model
+- Tick checkboxes to select schedule items in Revit.
+- **Group selection**: selecting a grouped row automatically selects all items in that group.
+- **Smart view finding**: prioritises opening a Floor Plan; toggling switches between Floor Plan and 3D View.
+- **Focus**: selects and zooms to fit elements in the active view.
 
-### 🔔 Smart Update System
-- **Update Notification**: Automatically detects new versions and displays a rich "What's New" changelog popup on startup.
-- **Project-Aware Settings**:
-  - Persists "Last Selected Schedule" and "Sort Criteria" specifically for each Revit project.
-  - Automatically restores your preferred workflow when you switch between projects.
-- **Robust Error Handling**:
-  - Automatically reverts invalid parameter edits (e.g., values rejected by Revit) to keep the DataGrid in sync with the model.
-
-### 🛡️ Security
-- **Code Signing**: All Release builds are automatically signed with a self-signed certificate (`RKToolsCert.pfx`), establishing trust and preventing "Publisher Unknown" warnings in Revit.
+### 💾 Persistent Settings
+- **Sort & filter settings** stored in Revit Extensible Storage per user per project — safe with worksharing/Revit Server.
+- **Last selected schedule** remembered per project (local file).
+- Settings are restored automatically when switching between projects or reopening Revit.
 
 ### 🎨 Modern UI/UX
-- **Material Design**: Sleek, dark-themed interface using Material Design for XAML.
-- **Custom Window Chrome**: Borderless windows with custom title bars, resizing, and docking.
-- **Search**: Real-time filtering across all visible schedule columns.
-- **Theme Toggling**: Switch between Light and Dark modes (WIP).
-- **UI Visuals**: Yellow highlight for modified rows, clear selection feedback.
+- **Material Design**: sleek interface with switchable Light and Dark themes.
+- **Theme-aware ribbon icon**: the ribbon button automatically matches Revit's current UI theme (dark/light).
+- **Custom window chrome**: borderless windows with custom title bars, drag-to-move, and resize.
+- **Sorting window**: drag-and-drop cards to reorder sort criteria.
+
+### 🛡️ Security
+- **Code signing**: all Release builds are automatically signed with a self-signed certificate (`RKToolsCert.pfx`), preventing "Publisher Unknown" warnings in Revit.
+
+---
 
 ## Installation
 
 1. Clone the repository.
-2. Build the project using the commands below.
-3. The DLLs are output to `C:\Users\mibil\OneDrive\Desktop\DevDlls\ProSchedules` (configurable in `.csproj`).
-4. Load the add-in in Revit.
+2. Build the project (see commands below).
+3. DLLs are output to `C:\Users\mibil\OneDrive\Desktop\DevDlls\ProSchedules` (configurable in `.csproj`).
+4. Copy the appropriate `.addin` file and DLL to your Revit add-ins folder or load via the Revit Add-in Manager.
+
+---
 
 ## Development
 
 ### Prerequisites
 - Visual Studio 2022 or newer (for .NET 8.0 support).
-- Revit 2024 and/or Revit 2026 SDK/DLLs installed.
+- Revit 2024 and/or Revit 2026 installed (for API DLLs).
 
 ### Build Commands
 ```bash
 # Build for all targets
 dotnet build ProSchedules.csproj
 
-# Build for specific version
-dotnet build ProSchedules.csproj -f net48       # Revit 2024
-dotnet build ProSchedules.csproj -f net8.0-windows # Revit 2026
+# Build for a specific Revit version
+dotnet build ProSchedules.csproj -f net48            # Revit 2024
+dotnet build ProSchedules.csproj -f net8.0-windows   # Revit 2026
 ```
 
+---
+
 ## Architecture
-- **Commands**: Entry points (`DuplicateSheetsCommand`) handling UI invocation.
-- **External Events**: `IExternalEventHandler` implementations (`SheetDuplicationHandler`, `SheetEditHandler`) for safe Revit API interaction.
-- **Services**: `RevitService` for data retrieval and logic.
-- **UI**: WPF MVVM-like pattern with `DuplicateSheetsWindow`, `SortingWindow`, and `FilterWindow`.
-- **Resources**: Global styling in `ElementStyles.xaml` for consistency.
+- **Commands** — Entry points implementing `IExternalCommand`, invoked from the Revit ribbon.
+- **External Events** — `IExternalEventHandler` implementations for safe Revit API calls on the main thread (parameter updates, highlight, settings save).
+- **Services** — `RevitService` and `ExtensibleStorageService` for data retrieval and persistent storage.
+- **UI** — WPF windows: `DuplicateSheetsWindow` (main viewer), `SortingWindow`, `FilterWindow`.
+- **Themes** — Dynamic resource dictionaries (`DarkTheme.xaml`, `LightTheme.xaml`) swapped at runtime.
 
 ## Dependencies
-- **MaterialDesignInXaml**: UI Styling.
-- **ricaun.Revit.UI**: Ribbon integration.
-- **Costura.Fody**: DLL embedding for single-file distribution.
-
-## Known Issues / TODO
-
-### Parameters Window
-- **Built-in Type Parameter Values**: Some built-in type parameters (e.g., "Model", "Description") do not currently display their values in the DataGrid, although they show correctly in Revit's native schedule editor. Instance parameters, shared parameters, and project parameters work correctly.
-  - Status: Under investigation
-  - Workaround: Use Revit's native schedule editor for viewing these specific parameter values
+- **MaterialDesignInXaml** — UI styling.
+- **ricaun.Revit.UI** — Ribbon integration helpers.
+- **Costura.Fody** — Embeds all dependencies into a single DLL for clean distribution.
+- **Newtonsoft.Json** — Sort/filter settings serialisation.
 
 ---
+
+## Known Issues
+
+- **Built-in type parameter values**: Some built-in type parameters (e.g., *Model*, *Description*) do not display their values in the grid, although they show correctly in Revit's native schedule editor. Instance parameters, shared parameters, and project parameters work correctly.
+  - *Status*: Under investigation.
+  - *Workaround*: Use Revit's native schedule editor for these specific parameters.
+
 
