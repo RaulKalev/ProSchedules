@@ -129,6 +129,18 @@ namespace ProSchedules.ExternalEvents
 
         private bool UpdateSingleParameter(Document doc, string elementIdStr, ElementId parameterId, string value)
         {
+            // Support comma-separated IDs (grouped/non-itemized rows)
+            if (elementIdStr != null && elementIdStr.Contains(","))
+            {
+                bool anySuccess = false;
+                foreach (var id in elementIdStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (UpdateSingleParameter(doc, id.Trim(), parameterId, value))
+                        anySuccess = true;
+                }
+                return anySuccess;
+            }
+
             if (!long.TryParse(elementIdStr, out long elemIdValue)) return false;
 
             ElementId elementId = new ElementId(elemIdValue);
@@ -177,8 +189,9 @@ namespace ProSchedules.ExternalEvents
                 }
             }
 
-            // If not found on instance, try type
-            if (p == null)
+            // If not found on instance, OR found but read-only (type parameter accessed via instance),
+            // try to find and set the parameter on the type element directly.
+            if (p == null || p.IsReadOnly)
             {
                 ElementId typeId = element.GetTypeId();
                 if (typeId != ElementId.InvalidElementId)
@@ -186,30 +199,38 @@ namespace ProSchedules.ExternalEvents
                     Element typeElem = doc.GetElement(typeId);
                     if (typeElem != null)
                     {
+                        Parameter typeP = null;
                         if (idValue < 0)
                         {
-                            p = typeElem.get_Parameter((BuiltInParameter)(int)idValue);
+                            typeP = typeElem.get_Parameter((BuiltInParameter)(int)idValue);
                         }
                         else
                         {
-                            var paramElem = doc.GetElement(parameterId);
-                            if (paramElem != null)
+                            try
                             {
-                                p = typeElem.LookupParameter(paramElem.Name);
+                                var paramElem = doc.GetElement(parameterId);
+                                if (paramElem != null)
+                                {
+                                    typeP = typeElem.LookupParameter(paramElem.Name);
+                                }
                             }
+                            catch { }
                         }
 
-                        if (p == null)
+                        if (typeP == null)
                         {
                             foreach (Parameter param in typeElem.Parameters)
                             {
                                 if (param.Id.Value == parameterId.Value)
                                 {
-                                    p = param;
+                                    typeP = param;
                                     break;
                                 }
                             }
                         }
+
+                        if (typeP != null && !typeP.IsReadOnly)
+                            p = typeP;
                     }
                 }
             }

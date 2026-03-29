@@ -182,6 +182,15 @@
                                 <materialDesign:PackIcon Kind="TuneVariant" Width="20" Height="20"/>
                             </Button>
 
+                            <Button x:Name="FilterButton"
+                                    Click="Filter_Click"
+                                    Style="{StaticResource CustomActionButtonStyle}"
+                                    ToolTip="Filter Settings"
+                                    Width="32" Height="32"
+                                    Margin="0,0,6,0">
+                                <materialDesign:PackIcon Kind="FilterVariant" Width="20" Height="20"/>
+                            </Button>
+
                             <Button x:Name="SortButton"
                                     Click="Sort_Click"
                                     Style="{StaticResource CustomActionButtonStyle}"

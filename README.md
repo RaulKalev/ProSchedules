@@ -21,17 +21,21 @@ The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** 
 - **Prefix/Suffix**: Add prefixes or suffixes to sheet numbers and names.
 - **Auto-Numbering**: Intelligent renumbering of duplicated sheets.
 
-### 📊 Schedule Management & Sorting
+### 📊 Schedule Management, Sorting & Filtering
 - **Advanced Sorting**:
   - Sort sheets/schedules by any available column parameter.
   - Multi-level sorting (add multiple criteria).
   - Custom Sorting Window with persistent settings per schedule.
   - "Apply" without closing to test sort logic.
   - Drag-resizing and movable windows for better UX.
+- **Advanced Filtering**:
+  - Filter rows by any parameter column using 14 Revit-style conditions: `equals`, `does not equal`, `contains`, `begins with`, `ends with`, `has a value`, `has no value`, and more.
+  - Value field is an editable ComboBox — pick from existing values in the schedule or type a custom value (required for `contains`, `begins with`, etc.).
+  - Multi-rule filtering (all rules apply as AND conditions).
+  - Persistent filter settings per schedule — saved to disk and restored on startup.
+  - Filter rules are only committed when clicking **Apply** — Cancel and closing the window always restores the previous state.
 - **Grouping**: Option to itemize every instance or group by sorting keys.
-- **UI Visuals**:
-  - Yellow highlight for modified rows.
-  - Clear selection feedback.
+- **Search**: Real-time search across all visible schedule columns.
 
 ### 🖱️ Excel-Like Interaction
 - **Smart Selection**:
@@ -67,8 +71,9 @@ The add-in supports both **Revit 2024** (.NET Framework 4.8) and **Revit 2026** 
 ### 🎨 Modern UI/UX
 - **Material Design**: Sleek, dark-themed interface using Material Design for XAML.
 - **Custom Window Chrome**: Borderless windows with custom title bars, resizing, and docking.
-- **Search**: Real-time filtering of sheets.
+- **Search**: Real-time filtering across all visible schedule columns.
 - **Theme Toggling**: Switch between Light and Dark modes (WIP).
+- **UI Visuals**: Yellow highlight for modified rows, clear selection feedback.
 
 ## Installation
 
@@ -97,7 +102,7 @@ dotnet build ProSchedules.csproj -f net8.0-windows # Revit 2026
 - **Commands**: Entry points (`DuplicateSheetsCommand`) handling UI invocation.
 - **External Events**: `IExternalEventHandler` implementations (`SheetDuplicationHandler`, `SheetEditHandler`) for safe Revit API interaction.
 - **Services**: `RevitService` for data retrieval and logic.
-- **UI**: WPF MVVM-like pattern with `DuplicateSheetsWindow` and `SortingWindow`.
+- **UI**: WPF MVVM-like pattern with `DuplicateSheetsWindow`, `SortingWindow`, and `FilterWindow`.
 - **Resources**: Global styling in `ElementStyles.xaml` for consistency.
 
 ## Dependencies

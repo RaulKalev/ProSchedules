@@ -145,6 +145,8 @@ namespace ProSchedules.UI
         public ObservableCollection<RenamePreviewItem> RenamePreviewItems { get; set; } = new ObservableCollection<RenamePreviewItem>();
         public ObservableCollection<SortItem> SortCriteria { get; set; } = new ObservableCollection<SortItem>();
         public ObservableCollection<string> AvailableSortColumns { get; set; } = new ObservableCollection<string>();
+        public ObservableCollection<Models.FilterItem> FilterCriteria { get; set; } = new ObservableCollection<Models.FilterItem>();
+        public ObservableCollection<string> AvailableFilterColumns { get; set; } = new ObservableCollection<string>();
         public ObservableCollection<ScheduleRenameItem> ScheduleRenamePreviewItems { get; set; } = new ObservableCollection<ScheduleRenameItem>();
         public ObservableCollection<RenameParameterOption> RenameParameterOptions { get; set; } = new ObservableCollection<RenameParameterOption>();
 
@@ -152,6 +154,7 @@ namespace ProSchedules.UI
         private Dictionary<ElementId, bool> _scheduleItemizeSettings = new Dictionary<ElementId, bool>();
         private System.Data.DataTable _rawScheduleData;
         private Dictionary<ElementId, ObservableCollection<SortItem>> _scheduleSortSettings = new Dictionary<ElementId, ObservableCollection<SortItem>>();
+        private Dictionary<ElementId, ObservableCollection<Models.FilterItem>> _scheduleFilterSettings = new Dictionary<ElementId, ObservableCollection<Models.FilterItem>>();
         private string _lastSelectedScheduleName;
 
 
@@ -231,6 +234,7 @@ namespace ProSchedules.UI
 
             // Load persistent settings (must be before LoadData so they're available when schedule is restored)
             LoadSortSettings();
+            LoadFilterSettings();
             
             LoadData(app.ActiveUIDocument.Document);
 
@@ -248,6 +252,7 @@ namespace ProSchedules.UI
         private void MainWindow_Closed(object sender, EventArgs e)
         {
             SaveSortSettings();
+            SaveFilterSettings();
             SaveWindowState();
         }
 
@@ -315,7 +320,11 @@ namespace ProSchedules.UI
         private void SchedulesComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
-            
+
+            // Clear search and filters when switching schedules
+            if (SheetSearchBox != null)
+                SheetSearchBox.Clear();
+
             // Save selected schedule name for persistence
             if (selectedItem != null)
             {
@@ -339,6 +348,13 @@ namespace ProSchedules.UI
                 if (_scheduleSortSettings.ContainsKey(selectedItem.Id))
                 {
                     foreach(var item in _scheduleSortSettings[selectedItem.Id]) SortCriteria.Add(item.Clone());
+                }
+
+                // Load filters if exists (Deep Copy Restore)
+                FilterCriteria.Clear();
+                if (_scheduleFilterSettings.ContainsKey(selectedItem.Id))
+                {
+                    foreach(var item in _scheduleFilterSettings[selectedItem.Id]) FilterCriteria.Add(item.Clone());
                 }
 
                 // Restore Itemize Setting
@@ -388,6 +404,7 @@ namespace ProSchedules.UI
                    // Event won't fire, manually refresh
                    RefreshScheduleView(itemize);
                    ApplyCurrentSortLogic();
+                   ApplyFilterLogic();
                 }
             }
             else
@@ -622,6 +639,12 @@ namespace ProSchedules.UI
                             string val = r[i];
                             if (string.IsNullOrWhiteSpace(val)) continue;
                             hasValue = true;
+                            // Values with leading zeros (e.g. "01") must stay as strings
+                            if (val.Length > 1 && val[0] == '0')
+                            {
+                                isNumeric = false;
+                                break;
+                            }
                             if (!double.TryParse(val, out _))
                             {
                                 isNumeric = false;
@@ -662,7 +685,17 @@ namespace ProSchedules.UI
                         AvailableSortColumns.Add(col);
                     }
                 }
-                
+
+                // Update AvailableFilterColumns
+                var skipFilterCols = new[] { "IsSelected", "RowState", "ElementId", "TypeName", "Count" };
+                AvailableFilterColumns.Clear();
+                AvailableFilterColumns.Add("(none)");
+                foreach (System.Data.DataColumn col in dt.Columns)
+                {
+                    if (!skipFilterCols.Contains(col.ColumnName))
+                        AvailableFilterColumns.Add(col.ColumnName);
+                }
+
                 foreach(var row in data.Rows)
                 {
                     var newRow = dt.NewRow();
@@ -812,6 +845,7 @@ namespace ProSchedules.UI
                 _scheduleItemizeSettings[selectedItem.Id] = true;
                 RefreshScheduleView(true);
                 ApplyCurrentSortLogic();
+                ApplyFilterLogic();
             }
         }
 
@@ -824,6 +858,7 @@ namespace ProSchedules.UI
                 // Calling ApplyCurrentSortLogic will see the 'false' setting and trigger RefreshScheduleView(false) internally
                 // Then it will proceed to apply SortDescriptions.
                 ApplyCurrentSortLogic();
+                ApplyFilterLogic();
             }
         }
 
@@ -1054,6 +1089,23 @@ namespace ProSchedules.UI
         }
 
         private SortingWindow _sortingWindow;
+        private FilterWindow _filterWindow;
+
+        private void Filter_Click(object sender, RoutedEventArgs e)
+        {
+            if (_filterWindow == null || !_filterWindow.IsLoaded)
+            {
+                _filterWindow = new FilterWindow(this);
+                _filterWindow.Owner = this;
+                _filterWindow.Show();
+            }
+            else
+            {
+                _filterWindow.Activate();
+                if (_filterWindow.WindowState == WindowState.Minimized)
+                    _filterWindow.WindowState = WindowState.Normal;
+            }
+        }
 
         private void Sort_Click(object sender, RoutedEventArgs e)
         {
@@ -1078,6 +1130,93 @@ namespace ProSchedules.UI
         internal void ApplyCurrentSortLogicInternal()
         {
             ApplyCurrentSortLogic();
+        }
+
+        internal List<string> GetUniqueValuesForColumn(string columnName)
+        {
+            if (_rawScheduleData == null || !_rawScheduleData.Columns.Contains(columnName))
+                return new List<string>();
+
+            return _rawScheduleData.AsEnumerable()
+                .Select(r => r[columnName]?.ToString() ?? "")
+                .Where(v => !string.IsNullOrEmpty(v))
+                .Distinct()
+                .OrderBy(v => v)
+                .ToList();
+        }
+
+        internal void ApplyFilterLogic()
+        {
+            if (SheetsDataGrid.ItemsSource is System.Data.DataView dataView)
+            {
+                var activeFilters = FilterCriteria
+                    .Where(f => !string.IsNullOrEmpty(f.SelectedColumn) && f.SelectedColumn != "(none)")
+                    .ToList();
+
+                if (activeFilters.Count == 0)
+                {
+                    dataView.RowFilter = string.Empty;
+                    return;
+                }
+
+                var parts = new List<string>();
+                foreach (var f in activeFilters)
+                {
+                    string col = f.SelectedColumn.Replace("]", "]]");
+                    string val = (f.Value ?? "").Replace("'", "''");
+
+                    string expr = null;
+                    switch (f.SelectedCondition)
+                    {
+                        case "equals":
+                            expr = $"CONVERT([{col}], System.String) = '{val}'";
+                            break;
+                        case "does not equal":
+                            expr = $"CONVERT([{col}], System.String) <> '{val}'";
+                            break;
+                        case "is greater than":
+                            expr = $"[{col}] > '{val}'";
+                            break;
+                        case "is greater than or equal to":
+                            expr = $"[{col}] >= '{val}'";
+                            break;
+                        case "is less than":
+                            expr = $"[{col}] < '{val}'";
+                            break;
+                        case "is less than or equal to":
+                            expr = $"[{col}] <= '{val}'";
+                            break;
+                        case "contains":
+                            expr = $"CONVERT([{col}], System.String) LIKE '%{val}%'";
+                            break;
+                        case "does not contain":
+                            expr = $"CONVERT([{col}], System.String) NOT LIKE '%{val}%'";
+                            break;
+                        case "begins with":
+                            expr = $"CONVERT([{col}], System.String) LIKE '{val}%'";
+                            break;
+                        case "does not begin with":
+                            expr = $"CONVERT([{col}], System.String) NOT LIKE '{val}%'";
+                            break;
+                        case "ends with":
+                            expr = $"CONVERT([{col}], System.String) LIKE '%{val}'";
+                            break;
+                        case "does not end with":
+                            expr = $"CONVERT([{col}], System.String) NOT LIKE '%{val}'";
+                            break;
+                        case "has a value":
+                            expr = $"CONVERT([{col}], System.String) <> '' AND [{col}] IS NOT NULL";
+                            break;
+                        case "has no value":
+                            expr = $"(CONVERT([{col}], System.String) = '' OR [{col}] IS NULL)";
+                            break;
+                    }
+
+                    if (expr != null) parts.Add($"({expr})");
+                }
+
+                dataView.RowFilter = parts.Count > 0 ? string.Join(" AND ", parts) : string.Empty;
+            }
         }
 
         private void ApplyCurrentSortLogic()
@@ -1225,6 +1364,76 @@ namespace ProSchedules.UI
             public long ScheduleId { get; set; }
             public List<SortItem> Items { get; set; }
             public bool ItemizeEveryInstance { get; set; } = true;
+        }
+
+        public class SavedScheduleFilter
+        {
+            public long ScheduleId { get; set; }
+            public List<Models.FilterItem> Items { get; set; }
+        }
+
+        internal void CommitFilterSettings()
+        {
+            if (_currentScheduleData != null && _currentScheduleData.ScheduleId != ElementId.InvalidElementId)
+            {
+                var list = new ObservableCollection<Models.FilterItem>();
+                foreach (var item in FilterCriteria) list.Add(item.Clone());
+                _scheduleFilterSettings[_currentScheduleData.ScheduleId] = list;
+            }
+        }
+
+        private void SaveFilterSettings()
+        {
+            try
+            {
+                var dtos = new List<SavedScheduleFilter>();
+                foreach (var kvp in _scheduleFilterSettings)
+                {
+                    long idVal = GetIdValue(kvp.Key);
+                    dtos.Add(new SavedScheduleFilter
+                    {
+                        ScheduleId = idVal,
+                        Items = kvp.Value.ToList()
+                    });
+                }
+
+                string folder = GetProjectSettingsFolder();
+                string file = System.IO.Path.Combine(folder, "filter_settings.json");
+                string json = Newtonsoft.Json.JsonConvert.SerializeObject(dtos, Newtonsoft.Json.Formatting.Indented);
+                System.IO.File.WriteAllText(file, json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error saving filter settings: {ex.Message}");
+            }
+        }
+
+        private void LoadFilterSettings()
+        {
+            try
+            {
+                string folder = GetProjectSettingsFolder();
+                string file = System.IO.Path.Combine(folder, "filter_settings.json");
+                if (System.IO.File.Exists(file))
+                {
+                    string json = System.IO.File.ReadAllText(file);
+                    var dtos = Newtonsoft.Json.JsonConvert.DeserializeObject<List<SavedScheduleFilter>>(json);
+
+                    if (dtos != null)
+                    {
+                        _scheduleFilterSettings.Clear();
+                        foreach (var dto in dtos)
+                        {
+                            ElementId eid = new ElementId((long)dto.ScheduleId);
+                            _scheduleFilterSettings[eid] = new ObservableCollection<Models.FilterItem>(dto.Items);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error loading filter settings: {ex.Message}");
+            }
         }
         
         #endregion
@@ -2189,6 +2398,7 @@ namespace ProSchedules.UI
                         $"You are about to update Type Parameters ({paramNames}).\nThis will affect ALL elements of the corresponding types.\n\nProceed with Auto-Fill?",
                         () => ExecuteBatchUpdates(updates)
                     );
+                    return; // Wait for user confirmation — ExecuteBatchUpdates is called inside the callback
                 }
                 if (updates.Count > 0)
                 {
@@ -2479,7 +2689,31 @@ namespace ProSchedules.UI
         private void SheetSearch_TextChanged(object sender, TextChangedEventArgs e)
         {
             var searchText = (sender as System.Windows.Controls.TextBox)?.Text?.ToLowerInvariant() ?? "";
-            
+
+            // Schedule mode — filter the DataView via RowFilter
+            if (_currentScheduleData != null && SheetsDataGrid.ItemsSource is System.Data.DataView dataView)
+            {
+                if (string.IsNullOrEmpty(searchText))
+                {
+                    dataView.RowFilter = string.Empty;
+                }
+                else
+                {
+                    var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "TypeName", "Count" };
+                    var filterableCols = dataView.Table.Columns
+                        .Cast<System.Data.DataColumn>()
+                        .Where(c => !skipColumns.Contains(c.ColumnName) && c.DataType == typeof(string))
+                        .Select(c => $"CONVERT([{c.ColumnName}], System.String) LIKE '%{searchText.Replace("'", "''")}%'")
+                        .ToList();
+
+                    dataView.RowFilter = filterableCols.Count > 0
+                        ? string.Join(" OR ", filterableCols)
+                        : string.Empty;
+                }
+                return;
+            }
+
+            // Sheet mode — filter FilteredSheets
             FilteredSheets.Clear();
             foreach (var sheet in Sheets.Where(s => 
                 string.IsNullOrEmpty(searchText) || 
