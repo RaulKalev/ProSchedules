@@ -35,6 +35,14 @@
             
             <ui:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
 
+            <Style x:Key="SheetPendingCellStyle" TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource ExcelLikeCellStyle}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding HasUnsavedChanges}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource PendingChangeBrush}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
 
 
 
@@ -100,6 +108,8 @@
                     <!-- Row 0: Title bar -->
                     <RowDefinition Height="*" />
                     <!-- Row 1: Content -->
+                    <RowDefinition Height="Auto" />
+                    <!-- Row 2: Bottom ribbon -->
                 </Grid.RowDefinitions>
 
                 <!-- Title bar (Row 0) -->
@@ -355,14 +365,14 @@
                                                         Width="SizeToCells"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle}"
                                                         ElementStyle="{StaticResource EditableCellStyle}"
-                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
+                                                        CellStyle="{StaticResource SheetPendingCellStyle}"/>
                                     <DataGridTextColumn Header="Name"
                                                         Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                         IsReadOnly="False"
                                                         Width="*"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle_NoRightBorder}"
                                                         ElementStyle="{StaticResource EditableCellStyle}"
-                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
+                                                        CellStyle="{StaticResource SheetPendingCellStyle}"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                             
@@ -405,6 +415,84 @@
                         </Grid>
                     </GroupBox>
                 </Grid>
+
+                <!-- Bottom Ribbon: Manual Update Mode (Row 2) -->
+                <Border Grid.Row="2"
+                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="10,5">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Auto/Manual Toggle -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Auto"
+                                       Foreground="{DynamicResource ForegroundBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0" FontSize="11"/>
+                            <ToggleButton x:Name="ManualModeToggle"
+                                          Width="28" Height="15.5"
+                                          IsChecked="False"
+                                          Click="ManualModeToggle_Click"
+                                          ToolTip="Toggle Auto/Manual update mode">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                        <Grid Background="Transparent">
+                                            <materialDesign:PackIcon
+                                                x:Name="ManualToggleIcon"
+                                                Width="30" Height="30"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Foreground="{DynamicResource IconBrush}"
+                                                Kind="ToggleSwitchOffOutline" />
+                                        </Grid>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="ManualToggleIcon" Property="Kind" Value="ToggleSwitchOutline" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="False">
+                                                <Setter TargetName="ManualToggleIcon" Property="Kind" Value="ToggleSwitchOffOutline" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <TextBlock Text="Manual"
+                                       Foreground="{DynamicResource ForegroundBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="6,0,0,0" FontSize="11"/>
+                        </StackPanel>
+
+                        <!-- Apply Button -->
+                        <Button x:Name="ManualApplyButton"
+                                Grid.Column="2"
+                                Content="Apply"
+                                Click="ManualApply_Click"
+                                Style="{StaticResource CustomActionButtonStyle}"
+                                Width="80" Height="26"
+                                FontSize="11"
+                                Margin="0,0,8,0"
+                                IsEnabled="False"
+                                Opacity="0.3"/>
+
+                        <!-- Cancel Button -->
+                        <Button x:Name="ManualCancelButton"
+                                Grid.Column="3"
+                                Content="Cancel"
+                                Click="ManualCancel_Click"
+                                Style="{StaticResource CustomCancelButtonStyle}"
+                                Width="80" Height="26"
+                                FontSize="11"
+                                IsEnabled="False"
+                                Opacity="0.3"/>
+                    </Grid>
+                </Border>
 
             </Grid>
         </Border>

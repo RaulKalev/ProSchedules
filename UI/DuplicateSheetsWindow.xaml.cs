@@ -174,7 +174,24 @@ namespace ProSchedules.UI
         private Dictionary<ElementId, ObservableCollection<Models.FilterItem>> _scheduleFilterSettings = new Dictionary<ElementId, ObservableCollection<Models.FilterItem>>();
         private string _lastSelectedScheduleName;
 
+        // Manual update mode
+        private bool _isManualMode = false;
+        private List<PendingParameterChange> _pendingParameterChanges = new List<PendingParameterChange>();
+        private HashSet<string> _highlightedCells = new HashSet<string>(); // "rowIndex:columnName"
 
+        #endregion
+
+        #region Manual Mode Data
+
+        private class PendingParameterChange
+        {
+            public string ElementIdStr { get; set; }
+            public ElementId ParameterId { get; set; }
+            public string NewValue { get; set; }
+            public string OldValue { get; set; }
+            public string ColumnName { get; set; }
+            public int RowIndex { get; set; }
+        }
 
         #endregion
 
@@ -251,7 +268,11 @@ namespace ProSchedules.UI
             // Theme
             LoadThemeState();
             LoadWindowState();
+            LoadManualModeState();
             DataContext = this;
+
+            // Manual mode: cell highlighting via LoadingRow
+            SheetsDataGrid.LoadingRow += SheetsDataGrid_LoadingRow_ManualMode;
 
             // Load persistent settings (must be before LoadData so they're available when schedule is restored)
             LoadSettingsFromStorage(app.ActiveUIDocument.Document);
@@ -273,6 +294,7 @@ namespace ProSchedules.UI
         {
             SaveSettingsToStorage();
             SaveWindowState();
+            SaveManualModeState();
         }
 
         private void LoadData(Document doc)
@@ -338,6 +360,32 @@ namespace ProSchedules.UI
 
         private void SchedulesComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // Guard: warn about pending parameter changes in manual mode
+            if (_isManualMode && _pendingParameterChanges.Count > 0)
+            {
+                var previousItem = e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
+                ShowConfirmationPopup("Pending Changes",
+                    "Switching schedules will discard pending parameter changes. Continue?",
+                    () =>
+                    {
+                        _pendingParameterChanges.Clear();
+                        ClearAllCellHighlights();
+                        // Re-trigger selection change now that pending changes are cleared
+                        SchedulesComboBox_SelectionChanged(sender, e);
+                    },
+                    () =>
+                    {
+                        // Revert selection
+                        if (previousItem != null)
+                        {
+                            SchedulesComboBox.SelectionChanged -= SchedulesComboBox_SelectionChanged;
+                            SchedulesComboBox.SelectedItem = previousItem;
+                            SchedulesComboBox.SelectionChanged += SchedulesComboBox_SelectionChanged;
+                        }
+                    });
+                return;
+            }
+
             var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
 
             // Clear search and filters when switching schedules
@@ -1028,17 +1076,54 @@ namespace ProSchedules.UI
             PerformParameterUpdate(elementIdStr, parameterId, newValue, oldValue, row, columnName);
         }
 
-        private void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue, 
+        private void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue,
                                                   string oldValue, System.Data.DataRowView row, string columnName)
         {
-            // Update the parameter value via external event
+            if (_isManualMode)
+            {
+                // Queue the change instead of sending to Revit
+                var existing = _pendingParameterChanges.FirstOrDefault(p =>
+                    p.ElementIdStr == elementIdStr &&
+                    p.ParameterId.Value == parameterId.Value &&
+                    p.ColumnName == columnName);
+
+                if (existing != null)
+                {
+                    existing.NewValue = newValue;
+                    // If user reverted to original, remove the pending change
+                    if (existing.NewValue == existing.OldValue)
+                    {
+                        _pendingParameterChanges.Remove(existing);
+                        ClearCellHighlight(row, columnName);
+                        return;
+                    }
+                }
+                else
+                {
+                    int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+                    _pendingParameterChanges.Add(new PendingParameterChange
+                    {
+                        ElementIdStr = elementIdStr,
+                        ParameterId = parameterId,
+                        NewValue = newValue,
+                        OldValue = oldValue,
+                        ColumnName = columnName,
+                        RowIndex = rowIndex
+                    });
+                }
+
+                HighlightPendingCell(row, columnName);
+                return;
+            }
+
+            // Auto mode: update the parameter value via external event immediately
             _parameterValueUpdateHandler.IsBatchMode = false;
             _parameterValueUpdateHandler.ElementIdStr = elementIdStr;
             _parameterValueUpdateHandler.ParameterIdStr = parameterId.Value.ToString();
             _parameterValueUpdateHandler.NewValue = newValue;
 
             _parameterValueUpdateExternalEvent.Raise();
-            
+
             // UI Update is now handled by OnParameterValueUpdateFinished
         }
 
@@ -2065,8 +2150,22 @@ namespace ProSchedules.UI
                     sheet.State = SheetItemState.PendingEdit;
                 }
 
+                // If the sheet was reverted to original values, reset state
+                if (sheet.State == SheetItemState.PendingEdit &&
+                    sheet.SheetNumber == sheet.OriginalSheetNumber && sheet.Name == sheet.OriginalName)
+                {
+                    sheet.State = SheetItemState.ExistingInRevit;
+                }
+
                 ValidateSheetNumber(sheet);
                 UpdateButtonStates();
+
+                // In Auto mode, immediately push sheet edits to Revit
+                if (!_isManualMode && sheet.State == SheetItemState.PendingEdit && !sheet.HasNumberConflict)
+                {
+                    _editHandler.SheetsToEdit = new List<SheetItem> { sheet };
+                    _editExternalEvent.Raise();
+                }
             }
         }
 
@@ -2400,6 +2499,10 @@ namespace ProSchedules.UI
         {
             Dispatcher.Invoke(() =>
             {
+                // Clear manual mode pending state after apply
+                _pendingParameterChanges.Clear();
+                ClearAllCellHighlights();
+
                 // Reload schedule data to show updated values from Revit
                 var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
                 if (selectedItem?.Schedule != null)
@@ -2947,6 +3050,53 @@ namespace ProSchedules.UI
         {
             if (updates == null || updates.Count == 0) return;
 
+            if (_isManualMode)
+            {
+                // Queue all updates as pending changes instead of executing immediately
+                foreach (var update in updates)
+                {
+                    int rowIndex = -1;
+                    if (update.Row != null)
+                    {
+                        rowIndex = update.Row.Row.Table.Rows.IndexOf(update.Row.Row);
+                    }
+
+                    var existing = _pendingParameterChanges.FirstOrDefault(p =>
+                        p.ElementIdStr == update.ElementIdStr &&
+                        p.ParameterId.Value == update.ParameterId.Value &&
+                        p.ColumnName == update.ColumnName);
+
+                    if (existing != null)
+                    {
+                        existing.NewValue = update.NewValue;
+                    }
+                    else
+                    {
+                        string oldValue = "";
+                        if (update.Row != null && update.Row.Row.Table.Columns.Contains(update.ColumnName))
+                        {
+                            oldValue = update.Row[update.ColumnName]?.ToString() ?? "";
+                        }
+
+                        _pendingParameterChanges.Add(new PendingParameterChange
+                        {
+                            ElementIdStr = update.ElementIdStr,
+                            ParameterId = update.ParameterId,
+                            NewValue = update.NewValue,
+                            OldValue = oldValue,
+                            ColumnName = update.ColumnName,
+                            RowIndex = rowIndex
+                        });
+                    }
+
+                    if (update.Row != null)
+                    {
+                        HighlightPendingCell(update.Row, update.ColumnName);
+                    }
+                }
+                return;
+            }
+
             var batchData = new List<ParameterBatchData>();
             foreach (var update in updates)
             {
@@ -3210,6 +3360,269 @@ namespace ProSchedules.UI
             {
                 MessageBox.Show($"Failed to save settings: {ex.Message}", "Save Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        #endregion
+
+        #region Manual Update Mode
+
+        private void ManualModeToggle_Click(object sender, RoutedEventArgs e)
+        {
+            bool wasManualMode = _isManualMode;
+            _isManualMode = ManualModeToggle.IsChecked == true;
+            UpdateManualModeUI();
+            SaveManualModeState();
+
+            // If switching from Manual back to Auto with pending changes, prompt
+            if (wasManualMode && !_isManualMode && HasPendingManualChanges())
+            {
+                ShowConfirmationPopup("Switch to Auto Mode",
+                    "You have pending changes. Apply them before switching to Auto mode?",
+                    () => { ApplyAllPendingChanges(); },
+                    () => { CancelAllPendingChanges(); });
+            }
+        }
+
+        private void UpdateManualModeUI()
+        {
+            if (_isManualMode)
+            {
+                ManualApplyButton.IsEnabled = true;
+                ManualApplyButton.Opacity = 1.0;
+                ManualCancelButton.IsEnabled = true;
+                ManualCancelButton.Opacity = 1.0;
+            }
+            else
+            {
+                ManualApplyButton.IsEnabled = false;
+                ManualApplyButton.Opacity = 0.3;
+                ManualCancelButton.IsEnabled = false;
+                ManualCancelButton.Opacity = 0.3;
+            }
+        }
+
+        private void LoadManualModeState()
+        {
+            try
+            {
+                var config = LoadConfig();
+                if (TryGetBool(config, "IsManualMode", out var isManual))
+                {
+                    _isManualMode = isManual;
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            if (ManualModeToggle != null)
+            {
+                ManualModeToggle.IsChecked = _isManualMode;
+            }
+            UpdateManualModeUI();
+        }
+
+        private void SaveManualModeState()
+        {
+            try
+            {
+                var config = LoadConfig();
+                config["IsManualMode"] = _isManualMode;
+                SaveConfig(config);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private bool HasPendingManualChanges()
+        {
+            return _pendingParameterChanges.Count > 0 ||
+                   Sheets.Any(s => s.HasUnsavedChanges);
+        }
+
+        private void ManualApply_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyAllPendingChanges();
+        }
+
+        private void ApplyAllPendingChanges()
+        {
+            // 1. Apply pending schedule parameter changes
+            if (_pendingParameterChanges.Count > 0)
+            {
+                var batchData = _pendingParameterChanges.Select(p => new ExternalEvents.ParameterBatchData
+                {
+                    ElementIdStr = p.ElementIdStr,
+                    ParameterId = p.ParameterId,
+                    Value = p.NewValue
+                }).ToList();
+
+                _parameterValueUpdateHandler.IsBatchMode = true;
+                _parameterValueUpdateHandler.BatchData = batchData;
+                _parameterValueUpdateExternalEvent.Raise();
+                // _pendingParameterChanges will be cleared in OnParameterValueUpdateFinished
+            }
+
+            // 2. Apply pending sheet edits
+            var sheetsToEdit = Sheets.Where(s => s.State == SheetItemState.PendingEdit).ToList();
+            if (sheetsToEdit.Count > 0)
+            {
+                _editHandler.SheetsToEdit = sheetsToEdit;
+                _editExternalEvent.Raise();
+            }
+
+            // 3. Apply pending sheet creations
+            var sheetsToCreate = Sheets.Where(s => s.State == SheetItemState.PendingCreation).ToList();
+            if (sheetsToCreate.Count > 0)
+            {
+                _handler.PendingSheetData = sheetsToCreate;
+                _externalEvent.Raise();
+            }
+        }
+
+        private void ManualCancel_Click(object sender, RoutedEventArgs e)
+        {
+            if (!HasPendingManualChanges()) return;
+
+            ShowConfirmationPopup("Confirm Cancel", "Discard all pending changes?",
+                () => { CancelAllPendingChanges(); });
+        }
+
+        private void CancelAllPendingChanges()
+        {
+            // 1. Revert schedule parameter changes in the DataTable UI
+            var view = SheetsDataGrid.ItemsSource as System.Data.DataView;
+            if (view != null)
+            {
+                foreach (var change in _pendingParameterChanges)
+                {
+                    if (change.RowIndex >= 0 && change.RowIndex < view.Table.Rows.Count)
+                    {
+                        var row = view.Table.Rows[change.RowIndex];
+                        if (view.Table.Columns.Contains(change.ColumnName))
+                        {
+                            row[change.ColumnName] = change.OldValue;
+                        }
+                    }
+                }
+            }
+            _pendingParameterChanges.Clear();
+            ClearAllCellHighlights();
+
+            // 2. Revert pending sheet edits
+            foreach (var sheet in Sheets.Where(s => s.State == SheetItemState.PendingEdit).ToList())
+            {
+                sheet.SheetNumber = sheet.OriginalSheetNumber;
+                sheet.Name = sheet.OriginalName;
+                sheet.State = SheetItemState.ExistingInRevit;
+            }
+
+            // 3. Remove pending sheet creations
+            var toRemove = Sheets.Where(s => s.State == SheetItemState.PendingCreation).ToList();
+            foreach (var sheet in toRemove)
+            {
+                sheet.PropertyChanged -= OnSheetPropertyChanged;
+                Sheets.Remove(sheet);
+                FilteredSheets.Remove(sheet);
+            }
+
+            UpdateButtonStates();
+        }
+
+        private void HighlightPendingCell(System.Data.DataRowView row, string columnName)
+        {
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+            _highlightedCells.Add($"{rowIndex}:{columnName}");
+            ApplyCellHighlights();
+        }
+
+        private void ClearCellHighlight(System.Data.DataRowView row, string columnName)
+        {
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+            _highlightedCells.Remove($"{rowIndex}:{columnName}");
+            ApplyCellHighlights();
+        }
+
+        private void ClearAllCellHighlights()
+        {
+            _highlightedCells.Clear();
+            ApplyCellHighlights();
+        }
+
+        private void ApplyCellHighlights()
+        {
+            // Force the DataGrid to re-render rows so LoadingRow fires
+            if (SheetsDataGrid.ItemsSource is System.Data.DataView)
+            {
+                SheetsDataGrid.Items.Refresh();
+                UpdateSelectionAdorner();
+            }
+        }
+
+        private void SheetsDataGrid_LoadingRow_ManualMode(object sender, DataGridRowEventArgs e)
+        {
+            if (!_isManualMode || _highlightedCells.Count == 0)
+            {
+                // Clear any previously applied highlights when not in manual mode
+                ClearRowCellHighlights(e.Row);
+                return;
+            }
+
+            var row = e.Row.Item as System.Data.DataRowView;
+            if (row == null) return;
+
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+
+            // We need to defer this until after the row is rendered
+            e.Row.Loaded -= Row_ApplyHighlights;
+            e.Row.Loaded += Row_ApplyHighlights;
+        }
+
+        private void Row_ApplyHighlights(object sender, RoutedEventArgs e)
+        {
+            var dataGridRow = sender as DataGridRow;
+            if (dataGridRow == null) return;
+            dataGridRow.Loaded -= Row_ApplyHighlights;
+
+            var row = dataGridRow.Item as System.Data.DataRowView;
+            if (row == null) return;
+
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+
+            foreach (var column in SheetsDataGrid.Columns)
+            {
+                string colName = column.Header?.ToString();
+                if (colName == null) continue;
+
+                var cellContent = column.GetCellContent(dataGridRow);
+                if (cellContent == null) continue;
+                var cell = cellContent.Parent as DataGridCell;
+                if (cell == null) continue;
+
+                if (_isManualMode && _highlightedCells.Contains($"{rowIndex}:{colName}"))
+                {
+                    cell.Background = (Brush)FindResource("PendingChangeBrush");
+                }
+                else
+                {
+                    cell.ClearValue(DataGridCell.BackgroundProperty);
+                }
+            }
+        }
+
+        private void ClearRowCellHighlights(DataGridRow dataGridRow)
+        {
+            if (dataGridRow == null) return;
+
+            foreach (var column in SheetsDataGrid.Columns)
+            {
+                var cellContent = column.GetCellContent(dataGridRow);
+                if (cellContent == null) continue;
+                var cell = cellContent.Parent as DataGridCell;
+                if (cell == null) continue;
+                cell.ClearValue(DataGridCell.BackgroundProperty);
             }
         }
 
