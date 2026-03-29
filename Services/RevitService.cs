@@ -63,10 +63,19 @@ namespace ProSchedules.Services
             IList<Element> elements = new List<Element>();
             if (categoryId != ElementId.InvalidElementId)
             {
-                elements = new FilteredElementCollector(_doc)
-                    .OfCategoryId(categoryId)
-                    .WhereElementIsNotElementType()
-                    .ToElements();
+                // ProjectInformation is a singleton — FilteredElementCollector won't find it
+                var projInfoCatId = new ElementId(BuiltInCategory.OST_ProjectInformation);
+                if (categoryId.Value == projInfoCatId.Value && _doc.ProjectInformation != null)
+                {
+                    elements = new List<Element> { _doc.ProjectInformation };
+                }
+                else
+                {
+                    elements = new FilteredElementCollector(_doc)
+                        .OfCategoryId(categoryId)
+                        .WhereElementIsNotElementType()
+                        .ToElements();
+                }
             }
 
             if (!data.Columns.Contains("ElementId"))
@@ -201,6 +210,30 @@ namespace ProSchedules.Services
                          }
                          
                          if (p != null) isType = true;
+                    }
+                }
+            }
+
+            // Fallback: check ProjectInformation for project-level parameters
+            if (p == null)
+            {
+                var projInfo = _doc.ProjectInformation;
+                if (projInfo != null)
+                {
+                    if (idValue < 0)
+                    {
+                        p = projInfo.get_Parameter((BuiltInParameter)(int)idValue);
+                    }
+                    else
+                    {
+                        foreach (Parameter param in projInfo.Parameters)
+                        {
+                            if (param.Id.Value == parameterId.Value)
+                            {
+                                p = param;
+                                break;
+                            }
+                        }
                     }
                 }
             }
