@@ -707,8 +707,9 @@ namespace ProSchedules.UI
                         safeName = $"{data.Columns[i]} ({dupIdx++})";
                     }
 
-                    // Filter out internal columns from sorting options
-                    if (safeName != "ElementId" && safeName != "TypeName" && !safeName.StartsWith("Count"))
+                    // Filter out internal columns and hidden columns from sorting options
+                    if (safeName != "ElementId" && safeName != "TypeName" && !safeName.StartsWith("Count")
+                        && !data.HiddenColumns.Contains(data.Columns[i]))
                     {
                         newSortColumns.Add(safeName);
                     }
@@ -781,10 +782,16 @@ namespace ProSchedules.UI
                 var skipFilterCols = new[] { "IsSelected", "RowState", "ElementId", "TypeName", "Count" };
                 AvailableFilterColumns.Clear();
                 AvailableFilterColumns.Add("(none)");
+                // Visible columns first, then hidden columns grouped at the bottom
                 foreach (System.Data.DataColumn col in dt.Columns)
                 {
-                    if (!skipFilterCols.Contains(col.ColumnName))
+                    if (!skipFilterCols.Contains(col.ColumnName) && !data.HiddenColumns.Contains(col.ColumnName))
                         AvailableFilterColumns.Add(col.ColumnName);
+                }
+                foreach (System.Data.DataColumn col in dt.Columns)
+                {
+                    if (!skipFilterCols.Contains(col.ColumnName) && data.HiddenColumns.Contains(col.ColumnName))
+                        AvailableFilterColumns.Add($"{col.ColumnName} [hidden]");
                 }
 
                 foreach(var row in data.Rows)
@@ -940,11 +947,12 @@ namespace ProSchedules.UI
             var checkCol = CreateCheckBoxColumn();
             ScheduleDataGrid.Columns.Add(checkCol);
             
-            // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected)
+            // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected, and hidden columns)
             var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "Count", "TypeName" };
             foreach(System.Data.DataColumn col in viewTable.Columns)
             {
                 if (skipColumns.Contains(col.ColumnName)) continue;
+                if (_currentScheduleData?.HiddenColumns.Contains(col.ColumnName) == true) continue;
                 
                 // Skip columns that end with " (1)", " (2)", etc. - these are duplicates
                 if (System.Text.RegularExpressions.Regex.IsMatch(col.ColumnName, @"\s\(\d+\)$")) continue;
@@ -980,6 +988,9 @@ namespace ProSchedules.UI
             ScheduleDataGrid.CellEditEnding += ScheduleDataGrid_CellEditEnding;
             ScheduleDataGrid.BeginningEdit -= ScheduleDataGrid_BeginningEdit;
             ScheduleDataGrid.BeginningEdit += ScheduleDataGrid_BeginningEdit;
+
+            // Re-apply active filters — RowFilter must be set on every new DataView
+            ApplyFilterLogic();
         }
 
         private void Itemize_Checked(object sender, RoutedEventArgs e)
@@ -1316,6 +1327,10 @@ namespace ProSchedules.UI
 
         internal List<string> GetUniqueValuesForColumn(string columnName)
         {
+            // Strip " [hidden]" suffix used for display
+            if (columnName.EndsWith(" [hidden]"))
+                columnName = columnName.Substring(0, columnName.Length - " [hidden]".Length);
+
             if (_rawScheduleData == null || !_rawScheduleData.Columns.Contains(columnName))
                 return new List<string>();
 
@@ -1344,7 +1359,11 @@ namespace ProSchedules.UI
                 var parts = new List<string>();
                 foreach (var f in activeFilters)
                 {
-                    string col = f.SelectedColumn.Replace("]", "]]");
+                    // Strip the " [hidden]" suffix that is shown in the UI for hidden columns
+                    string rawCol = f.SelectedColumn.EndsWith(" [hidden]")
+                        ? f.SelectedColumn.Substring(0, f.SelectedColumn.Length - " [hidden]".Length)
+                        : f.SelectedColumn;
+                    string col = rawCol.Replace("]", "]]");
                     string val = (f.Value ?? "").Replace("'", "''");
 
                     string expr = null;
@@ -1392,15 +1411,29 @@ namespace ProSchedules.UI
                         case "has no value":
                             expr = $"(CONVERT([{col}], System.String) = '' OR [{col}] IS NULL)";
                             break;
+                        case "parameter exists":
+                            expr = $"[{col}] IS NOT NULL";
+                            break;
+                        case "parameter does not exist":
+                            expr = $"[{col}] IS NULL";
+                            break;
                     }
 
                     if (expr != null) parts.Add($"({expr})");
                 }
 
                 // Always let separator/footer rows through so they're never hidden by active filters
-                dataView.RowFilter = parts.Count > 0
-                    ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" AND ", parts)})"
-                    : string.Empty;
+                try
+                {
+                    dataView.RowFilter = parts.Count > 0
+                        ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" AND ", parts)})"
+                        : string.Empty;
+                }
+                catch (Exception filterEx)
+                {
+                    ShowPopup("Filter Error", $"One or more filter rules could not be applied:\n{filterEx.Message}");
+                    dataView.RowFilter = string.Empty;
+                }
             }
         }
 
@@ -3087,6 +3120,12 @@ namespace ProSchedules.UI
                             ColumnName = update.ColumnName,
                             RowIndex = rowIndex
                         });
+
+                        // Show the new value immediately in the grid without waiting for Apply
+                        if (update.Row != null && update.Row.Row.Table.Columns.Contains(update.ColumnName))
+                        {
+                            update.Row[update.ColumnName] = update.NewValue;
+                        }
                     }
 
                     if (update.Row != null)

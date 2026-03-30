@@ -489,6 +489,7 @@
                                 Style="{StaticResource CustomCancelButtonStyle}"
                                 Width="80" Height="26"
                                 FontSize="11"
+                                Margin="0"
                                 IsEnabled="False"
                                 Opacity="0.3"/>
                     </Grid>

@@ -9,5 +9,7 @@ namespace ProSchedules.Models
         public List<Autodesk.Revit.DB.ElementId> ParameterIds { get; set; } = new List<Autodesk.Revit.DB.ElementId>();
         public List<List<string>> Rows { get; set; } = new List<List<string>>();
         public Dictionary<string, bool> IsTypeParameter { get; set; } = new Dictionary<string, bool>();
+        /// <summary>Column names that exist in Revit but are hidden in the schedule view.</summary>
+        public HashSet<string> HiddenColumns { get; set; } = new HashSet<string>();
     }
 }
