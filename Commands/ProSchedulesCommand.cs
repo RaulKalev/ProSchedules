@@ -7,9 +7,9 @@ using System.Runtime.InteropServices;
 namespace ProSchedules.Commands
 {
     [Transaction(TransactionMode.Manual)]
-    public class ProSheetsCommand : IExternalCommand
+    public class ProSchedulesCommand : IExternalCommand
     {
-        private static UI.DuplicateSheetsWindow _window;
+        private static UI.ProSchedulesWindow _window;
 
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -36,7 +36,7 @@ namespace ProSchedules.Commands
                 UIDocument uiDoc = commandData.Application.ActiveUIDocument;
                 Document doc = uiDoc.Document;
 
-                _window = new UI.DuplicateSheetsWindow(commandData.Application);
+                _window = new UI.ProSchedulesWindow(commandData.Application);
                 var owner = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
                 new System.Windows.Interop.WindowInteropHelper(_window) { Owner = owner };
 

@@ -9,13 +9,13 @@ namespace ProSchedules.UI
 {
     public partial class FilterWindow : Window
     {
-        private DuplicateSheetsWindow _parent;
+        private ProSchedulesWindow _parent;
         private List<FilterItem> _checkpoint;
 
         public ObservableCollection<FilterItem> FilterCriteria { get; private set; }
         public ObservableCollection<string> AvailableFilterColumns { get; private set; }
 
-        public FilterWindow(DuplicateSheetsWindow parent)
+        public FilterWindow(ProSchedulesWindow parent)
         {
             InitializeComponent();
             _parent = parent;

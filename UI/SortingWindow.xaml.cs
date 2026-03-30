@@ -11,7 +11,7 @@ namespace ProSchedules.UI
 {
     public partial class SortingWindow : Window
     {
-        private DuplicateSheetsWindow _parent;
+        private ProSchedulesWindow _parent;
         private List<SortItem> _checkpoint;
 
         // Drag-and-drop state
@@ -22,7 +22,7 @@ namespace ProSchedules.UI
         public ObservableCollection<SortItem> SortCriteria { get; private set; }
         public ObservableCollection<string> AvailableSortColumns { get; private set; }
 
-        public SortingWindow(DuplicateSheetsWindow parent)
+        public SortingWindow(ProSchedulesWindow parent)
         {
             InitializeComponent();
             _parent = parent;
@@ -38,9 +38,9 @@ namespace ProSchedules.UI
             // Create initial checkpoint
             CreateCheckpoint();
             
-            // Handle window move via TitleBar drag (handled by TitleBar control usually, but checking DuplicateSheetsWindow logic)
+            // Handle window move via TitleBar drag (handled by TitleBar control usually, but checking ProSchedulesWindow logic)
             // TitleBar control usually has logic. If not, we can add standard drag logic.
-            // DuplicateSheetsWindow is WindowStyle=None, so it likely handles dragging.
+            // ProSchedulesWindow is WindowStyle=None, so it likely handles dragging.
         }
 
         private void CreateCheckpoint()

@@ -21,7 +21,7 @@ namespace ProSchedules.ExternalEvents
             int failCount = 0;
             string errorMsg = "";
 
-            using (Transaction t = new Transaction(doc, "Update Sheet Names/Numbers"))
+            using (Transaction t = new Transaction(doc, "Update Names/Numbers"))
             {
                 t.Start();
 
@@ -67,7 +67,7 @@ namespace ProSchedules.ExternalEvents
 
         public string GetName()
         {
-            return "Sheet Edit Handler";
+            return "Schedule Edit Handler";
         }
     }
 }

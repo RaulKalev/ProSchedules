@@ -51,7 +51,9 @@ namespace ProSchedules.Models
             "ends with",
             "does not end with",
             "has a value",
-            "has no value"
+            "has no value",
+            "parameter exists",
+            "parameter does not exist"
         };
 
         public FilterItem Clone()

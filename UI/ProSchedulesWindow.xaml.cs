@@ -98,18 +98,18 @@ namespace ProSchedules.UI
     {
         public string Name { get; set; }
         public bool IsTypeParameter { get; set; }
-        public bool IsSheetParameter { get; set; } // True for Sheet Number/Sheet Name
+        public bool IsBuiltInParameter { get; set; } // True for Sheet Number/Sheet Name
     }
 
-    public partial class DuplicateSheetsWindow : Window
+    public partial class ProSchedulesWindow : Window
     {
         #region Constants / PInvoke
 
         private const string ConfigFilePath = @"C:\ProgramData\RK Tools\ProSchedules\config.json";
-        private const string WindowLeftKey = "DuplicateSheetsWindow.Left";
-        private const string WindowTopKey = "DuplicateSheetsWindow.Top";
-        private const string WindowWidthKey = "DuplicateSheetsWindow.Width";
-        private const string WindowHeightKey = "DuplicateSheetsWindow.Height";
+        private const string WindowLeftKey = "ProSchedulesWindow.Left";
+        private const string WindowTopKey = "ProSchedulesWindow.Top";
+        private const string WindowWidthKey = "ProSchedulesWindow.Width";
+        private const string WindowHeightKey = "ProSchedulesWindow.Height";
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -119,8 +119,8 @@ namespace ProSchedules.UI
         #region Revit state / UI state
 
         public static readonly DependencyProperty IsCopyModeProperty =
-            DependencyProperty.Register("IsCopyMode", typeof(bool), typeof(DuplicateSheetsWindow), 
-            new PropertyMetadata(false, (d, e) => ((DuplicateSheetsWindow)d).UpdateSelectionAdorner()));
+            DependencyProperty.Register("IsCopyMode", typeof(bool), typeof(ProSchedulesWindow), 
+            new PropertyMetadata(false, (d, e) => ((ProSchedulesWindow)d).UpdateSelectionAdorner()));
 
         public bool IsCopyMode
         {
@@ -174,13 +174,30 @@ namespace ProSchedules.UI
         private Dictionary<ElementId, ObservableCollection<Models.FilterItem>> _scheduleFilterSettings = new Dictionary<ElementId, ObservableCollection<Models.FilterItem>>();
         private string _lastSelectedScheduleName;
 
+        // Manual update mode
+        private bool _isManualMode = false;
+        private List<PendingParameterChange> _pendingParameterChanges = new List<PendingParameterChange>();
+        private HashSet<string> _highlightedCells = new HashSet<string>(); // "rowIndex:columnName"
 
+        #endregion
+
+        #region Manual Mode Data
+
+        private class PendingParameterChange
+        {
+            public string ElementIdStr { get; set; }
+            public ElementId ParameterId { get; set; }
+            public string NewValue { get; set; }
+            public string OldValue { get; set; }
+            public string ColumnName { get; set; }
+            public int RowIndex { get; set; }
+        }
 
         #endregion
 
         #region Ctor / Init
 
-        public DuplicateSheetsWindow(UIApplication app)
+        public ProSchedulesWindow(UIApplication app)
         {
             _uiApplication = app;
             InitializeComponent();
@@ -232,18 +249,18 @@ namespace ProSchedules.UI
             Closed += MainWindow_Closed;
 
             // Enforce Cell selection (Excel-like)
-            SheetsDataGrid.SelectionUnit = DataGridSelectionUnit.Cell;
-            SheetsDataGrid.SelectionMode = DataGridSelectionMode.Extended;
+            ScheduleDataGrid.SelectionUnit = DataGridSelectionUnit.Cell;
+            ScheduleDataGrid.SelectionMode = DataGridSelectionMode.Extended;
             
             // Selection Adorner Events
-            SheetsDataGrid.SelectedCellsChanged += (s, e) => UpdateSelectionAdorner();
-            SheetsDataGrid.LayoutUpdated += (s, e) => UpdateSelectionAdorner();
-            SheetsDataGrid.SizeChanged += (s, e) => UpdateSelectionAdorner();
-            SheetsDataGrid.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((s, e) => UpdateSelectionAdorner()));
+            ScheduleDataGrid.SelectedCellsChanged += (s, e) => UpdateSelectionAdorner();
+            ScheduleDataGrid.LayoutUpdated += (s, e) => UpdateSelectionAdorner();
+            ScheduleDataGrid.SizeChanged += (s, e) => UpdateSelectionAdorner();
+            ScheduleDataGrid.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler((s, e) => UpdateSelectionAdorner()));
 
             // Debug: Show selection count in title
-            SheetsDataGrid.SelectedCellsChanged += (s, e) => {
-                // this.Title = $"Debug: Selected Cells = {SheetsDataGrid.SelectedCells.Count}";
+            ScheduleDataGrid.SelectedCellsChanged += (s, e) => {
+                // this.Title = $"Debug: Selected Cells = {ScheduleDataGrid.SelectedCells.Count}";
             };
 
             MouseLeftButtonUp += Window_MouseLeftButtonUp;
@@ -251,7 +268,11 @@ namespace ProSchedules.UI
             // Theme
             LoadThemeState();
             LoadWindowState();
+            LoadManualModeState();
             DataContext = this;
+
+            // Manual mode: cell highlighting via LoadingRow
+            ScheduleDataGrid.LoadingRow += ScheduleDataGrid_LoadingRow_ManualMode;
 
             // Load persistent settings (must be before LoadData so they're available when schedule is restored)
             LoadSettingsFromStorage(app.ActiveUIDocument.Document);
@@ -273,6 +294,7 @@ namespace ProSchedules.UI
         {
             SaveSettingsToStorage();
             SaveWindowState();
+            SaveManualModeState();
         }
 
         private void LoadData(Document doc)
@@ -289,7 +311,7 @@ namespace ProSchedules.UI
                 sheetItem.State = SheetItemState.ExistingInRevit;
                 sheetItem.OriginalSheetNumber = sheet.SheetNumber;
                 sheetItem.OriginalName = sheet.Name;
-                sheetItem.PropertyChanged += OnSheetPropertyChanged;
+                sheetItem.PropertyChanged += OnItemPropertyChanged;
                 _allSheets.Add(sheetItem);
             }
 
@@ -338,11 +360,37 @@ namespace ProSchedules.UI
 
         private void SchedulesComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
+            // Guard: warn about pending parameter changes in manual mode
+            if (_isManualMode && _pendingParameterChanges.Count > 0)
+            {
+                var previousItem = e.RemovedItems.Count > 0 ? e.RemovedItems[0] : null;
+                ShowConfirmationPopup("Pending Changes",
+                    "Switching schedules will discard pending parameter changes. Continue?",
+                    () =>
+                    {
+                        _pendingParameterChanges.Clear();
+                        ClearAllCellHighlights();
+                        // Re-trigger selection change now that pending changes are cleared
+                        SchedulesComboBox_SelectionChanged(sender, e);
+                    },
+                    () =>
+                    {
+                        // Revert selection
+                        if (previousItem != null)
+                        {
+                            SchedulesComboBox.SelectionChanged -= SchedulesComboBox_SelectionChanged;
+                            SchedulesComboBox.SelectedItem = previousItem;
+                            SchedulesComboBox.SelectionChanged += SchedulesComboBox_SelectionChanged;
+                        }
+                    });
+                return;
+            }
+
             var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
 
             // Clear search and filters when switching schedules
-            if (SheetSearchBox != null)
-                SheetSearchBox.Clear();
+            if (ScheduleSearchBox != null)
+                ScheduleSearchBox.Clear();
 
             // Save selected schedule name for persistence
             if (selectedItem != null)
@@ -429,8 +477,8 @@ namespace ProSchedules.UI
             else
             {
                 // No schedule selected - show empty DataGrid
-                SheetsDataGrid.Columns.Clear();
-                SheetsDataGrid.ItemsSource = null;
+                ScheduleDataGrid.Columns.Clear();
+                ScheduleDataGrid.ItemsSource = null;
                 _currentScheduleData = null;
                 AvailableSortColumns.Clear();
             }
@@ -438,23 +486,23 @@ namespace ProSchedules.UI
 
         }
 
-        private void RestoreSheetView()
+        private void RestoreDataView()
         {
-            SheetsDataGrid.ItemsSource = null;
-            SheetsDataGrid.Columns.Clear();
+            ScheduleDataGrid.ItemsSource = null;
+            ScheduleDataGrid.Columns.Clear();
             
-            SheetsDataGrid.ItemsSource = FilteredSheets;
-            SheetsDataGrid.AutoGenerateColumns = false;
+            ScheduleDataGrid.ItemsSource = FilteredSheets;
+            ScheduleDataGrid.AutoGenerateColumns = false;
             
-            InitializeSheetColumns();
+            InitializeDataColumns();
         }
 
-        private void InitializeSheetColumns()
+        private void InitializeDataColumns()
         {
-            SheetsDataGrid.Columns.Clear();
+            ScheduleDataGrid.Columns.Clear();
             
             var checkBoxColumn = CreateCheckBoxColumn();
-            SheetsDataGrid.Columns.Add(checkBoxColumn);
+            ScheduleDataGrid.Columns.Add(checkBoxColumn);
             
             var numberCol = new DataGridTextColumn
             {
@@ -462,7 +510,7 @@ namespace ProSchedules.UI
                 Binding = new System.Windows.Data.Binding("SheetNumber"),
                 Width = new DataGridLength(150)
             };
-            SheetsDataGrid.Columns.Add(numberCol);
+            ScheduleDataGrid.Columns.Add(numberCol);
             
             var nameCol = new DataGridTextColumn
             {
@@ -470,7 +518,7 @@ namespace ProSchedules.UI
                 Binding = new System.Windows.Data.Binding("Name"),
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star)
             };
-            SheetsDataGrid.Columns.Add(nameCol);
+            ScheduleDataGrid.Columns.Add(nameCol);
         }
 
         private DataGridTemplateColumn CreateCheckBoxColumn()
@@ -545,9 +593,9 @@ namespace ProSchedules.UI
             bool isChecked = checkBox.IsChecked == true;
 
             // 1. Handle "SelectedItems" (Full Row Selection mode - though we are in Cell mode, this might still be populated if user selects full rows)
-            if (SheetsDataGrid.SelectedItems.Count > 1)
+            if (ScheduleDataGrid.SelectedItems.Count > 1)
             {
-               foreach (var selectedItem in SheetsDataGrid.SelectedItems)
+               foreach (var selectedItem in ScheduleDataGrid.SelectedItems)
                 {
                     SetRowSelection(selectedItem, isChecked);
                 }
@@ -556,9 +604,9 @@ namespace ProSchedules.UI
             // 2. Handle "SelectedCells" (Cell Selection mode)
             // If the user selected a range of cells in the first column (Checkbox column), we want to toggle all of them.
             // Checkbox column is usually index 0.
-            if (SheetsDataGrid.SelectedCells.Count > 1)
+            if (ScheduleDataGrid.SelectedCells.Count > 1)
             {
-                foreach(var cellInfo in SheetsDataGrid.SelectedCells)
+                foreach(var cellInfo in ScheduleDataGrid.SelectedCells)
                 {
                     // Check if this cell is in the Checkbox column
                     // We can check Column.DisplayIndex or checking the content. 
@@ -586,7 +634,7 @@ namespace ProSchedules.UI
 
         private void HeaderCheckBox_Checked(object sender, RoutedEventArgs e)
         {
-            var view = SheetsDataGrid.ItemsSource;
+            var view = ScheduleDataGrid.ItemsSource;
             if (view is System.Data.DataView dataView)
             {
                 foreach (System.Data.DataRowView row in dataView)
@@ -605,7 +653,7 @@ namespace ProSchedules.UI
 
         private void HeaderCheckBox_Unchecked(object sender, RoutedEventArgs e)
         {
-            var view = SheetsDataGrid.ItemsSource;
+            var view = ScheduleDataGrid.ItemsSource;
             if (view is System.Data.DataView dataView)
             {
                 foreach (System.Data.DataRowView row in dataView)
@@ -659,8 +707,9 @@ namespace ProSchedules.UI
                         safeName = $"{data.Columns[i]} ({dupIdx++})";
                     }
 
-                    // Filter out internal columns from sorting options
-                    if (safeName != "ElementId" && safeName != "TypeName" && !safeName.StartsWith("Count"))
+                    // Filter out internal columns and hidden columns from sorting options
+                    if (safeName != "ElementId" && safeName != "TypeName" && !safeName.StartsWith("Count")
+                        && !data.HiddenColumns.Contains(data.Columns[i]))
                     {
                         newSortColumns.Add(safeName);
                     }
@@ -733,10 +782,16 @@ namespace ProSchedules.UI
                 var skipFilterCols = new[] { "IsSelected", "RowState", "ElementId", "TypeName", "Count" };
                 AvailableFilterColumns.Clear();
                 AvailableFilterColumns.Add("(none)");
+                // Visible columns first, then hidden columns grouped at the bottom
                 foreach (System.Data.DataColumn col in dt.Columns)
                 {
-                    if (!skipFilterCols.Contains(col.ColumnName))
+                    if (!skipFilterCols.Contains(col.ColumnName) && !data.HiddenColumns.Contains(col.ColumnName))
                         AvailableFilterColumns.Add(col.ColumnName);
+                }
+                foreach (System.Data.DataColumn col in dt.Columns)
+                {
+                    if (!skipFilterCols.Contains(col.ColumnName) && data.HiddenColumns.Contains(col.ColumnName))
+                        AvailableFilterColumns.Add($"{col.ColumnName} [hidden]");
                 }
 
                 foreach(var row in data.Rows)
@@ -831,9 +886,9 @@ namespace ProSchedules.UI
                 viewTable = _rawScheduleData;
             }
 
-            SheetsDataGrid.ItemsSource = null;
-            SheetsDataGrid.Columns.Clear();
-            SheetsDataGrid.AutoGenerateColumns = false;
+            ScheduleDataGrid.ItemsSource = null;
+            ScheduleDataGrid.Columns.Clear();
+            ScheduleDataGrid.AutoGenerateColumns = false;
             
             if (viewTable == null) return;
             
@@ -886,17 +941,18 @@ namespace ProSchedules.UI
             footerRowTrigger2.Setters.Add(new Setter(DataGridRow.BackgroundProperty,
                 new System.Windows.DynamicResourceExtension("FooterLineBrush")));
             rowStyle.Triggers.Add(footerRowTrigger2);
-            SheetsDataGrid.RowStyle = rowStyle;
+            ScheduleDataGrid.RowStyle = rowStyle;
 
             // First add checkbox column
             var checkCol = CreateCheckBoxColumn();
-            SheetsDataGrid.Columns.Add(checkCol);
+            ScheduleDataGrid.Columns.Add(checkCol);
             
-            // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected)
+            // Then add schedule data columns (skip RowState, ElementId, Count, IsSelected, and hidden columns)
             var skipColumns = new[] { "IsSelected", "RowState", "ElementId", "Count", "TypeName" };
             foreach(System.Data.DataColumn col in viewTable.Columns)
             {
                 if (skipColumns.Contains(col.ColumnName)) continue;
+                if (_currentScheduleData?.HiddenColumns.Contains(col.ColumnName) == true) continue;
                 
                 // Skip columns that end with " (1)", " (2)", etc. - these are duplicates
                 if (System.Text.RegularExpressions.Regex.IsMatch(col.ColumnName, @"\s\(\d+\)$")) continue;
@@ -909,7 +965,7 @@ namespace ProSchedules.UI
                     EditingElementStyle = (Style)FindResource("DataGridEditingStyle"),
                     IsReadOnly = false
                 };
-                SheetsDataGrid.Columns.Add(textCol);
+                ScheduleDataGrid.Columns.Add(textCol);
             }
             
             // Finally add Count column at the end
@@ -922,16 +978,19 @@ namespace ProSchedules.UI
                     CellStyle = cellStyle,
                     IsReadOnly = true
                 };
-                SheetsDataGrid.Columns.Add(countCol);
+                ScheduleDataGrid.Columns.Add(countCol);
             }
             
-            SheetsDataGrid.ItemsSource = new System.Data.DataView(viewTable);
+            ScheduleDataGrid.ItemsSource = new System.Data.DataView(viewTable);
             
             // Subscribe to cell editing event (unsubscribe first to avoid duplicates)
-            SheetsDataGrid.CellEditEnding -= SheetsDataGrid_CellEditEnding;
-            SheetsDataGrid.CellEditEnding += SheetsDataGrid_CellEditEnding;
-            SheetsDataGrid.BeginningEdit -= SheetsDataGrid_BeginningEdit;
-            SheetsDataGrid.BeginningEdit += SheetsDataGrid_BeginningEdit;
+            ScheduleDataGrid.CellEditEnding -= ScheduleDataGrid_CellEditEnding;
+            ScheduleDataGrid.CellEditEnding += ScheduleDataGrid_CellEditEnding;
+            ScheduleDataGrid.BeginningEdit -= ScheduleDataGrid_BeginningEdit;
+            ScheduleDataGrid.BeginningEdit += ScheduleDataGrid_BeginningEdit;
+
+            // Re-apply active filters — RowFilter must be set on every new DataView
+            ApplyFilterLogic();
         }
 
         private void Itemize_Checked(object sender, RoutedEventArgs e)
@@ -959,7 +1018,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private async void SheetsDataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
+        private async void ScheduleDataGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
         {
             if (e.EditAction != DataGridEditAction.Commit) return;
             
@@ -1028,17 +1087,54 @@ namespace ProSchedules.UI
             PerformParameterUpdate(elementIdStr, parameterId, newValue, oldValue, row, columnName);
         }
 
-        private void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue, 
+        private void PerformParameterUpdate(string elementIdStr, ElementId parameterId, string newValue,
                                                   string oldValue, System.Data.DataRowView row, string columnName)
         {
-            // Update the parameter value via external event
+            if (_isManualMode)
+            {
+                // Queue the change instead of sending to Revit
+                var existing = _pendingParameterChanges.FirstOrDefault(p =>
+                    p.ElementIdStr == elementIdStr &&
+                    p.ParameterId.Value == parameterId.Value &&
+                    p.ColumnName == columnName);
+
+                if (existing != null)
+                {
+                    existing.NewValue = newValue;
+                    // If user reverted to original, remove the pending change
+                    if (existing.NewValue == existing.OldValue)
+                    {
+                        _pendingParameterChanges.Remove(existing);
+                        ClearCellHighlight(row, columnName);
+                        return;
+                    }
+                }
+                else
+                {
+                    int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+                    _pendingParameterChanges.Add(new PendingParameterChange
+                    {
+                        ElementIdStr = elementIdStr,
+                        ParameterId = parameterId,
+                        NewValue = newValue,
+                        OldValue = oldValue,
+                        ColumnName = columnName,
+                        RowIndex = rowIndex
+                    });
+                }
+
+                HighlightPendingCell(row, columnName);
+                return;
+            }
+
+            // Auto mode: update the parameter value via external event immediately
             _parameterValueUpdateHandler.IsBatchMode = false;
             _parameterValueUpdateHandler.ElementIdStr = elementIdStr;
             _parameterValueUpdateHandler.ParameterIdStr = parameterId.Value.ToString();
             _parameterValueUpdateHandler.NewValue = newValue;
 
             _parameterValueUpdateExternalEvent.Raise();
-            
+
             // UI Update is now handled by OnParameterValueUpdateFinished
         }
 
@@ -1074,7 +1170,7 @@ namespace ProSchedules.UI
                 }
                 else
                 {
-                    ShowPopup("Success", $"Successfully created {success} sheet(s).");
+                    ShowPopup("Success", $"Successfully created {success} item(s).");
                 }
             });
         }
@@ -1089,7 +1185,7 @@ namespace ProSchedules.UI
             var selectedCount = Sheets.Count(x => x.IsSelected);
             if (selectedCount == 0)
             {
-                ShowPopup("No Sheets Selected", "Please select at least one sheet to duplicate.");
+                ShowPopup("No Items Selected", "Please select at least one item to duplicate.");
                 return;
             }
 
@@ -1157,13 +1253,13 @@ namespace ProSchedules.UI
                         );
 
                         // Subscribe to property changes
-                        pendingSheet.PropertyChanged += OnSheetPropertyChanged;
+                        pendingSheet.PropertyChanged += OnItemPropertyChanged;
 
                         // Add to collections
                         Sheets.Add(pendingSheet);
 
                         // Check if it matches current search filter
-                        var searchText = SheetSearchBox?.Text?.ToLowerInvariant() ?? "";
+                        var searchText = ScheduleSearchBox?.Text?.ToLowerInvariant() ?? "";
                         if (string.IsNullOrEmpty(searchText) ||
                             pendingSheet.Name.ToLowerInvariant().Contains(searchText) ||
                             pendingSheet.SheetNumber.ToLowerInvariant().Contains(searchText))
@@ -1231,6 +1327,10 @@ namespace ProSchedules.UI
 
         internal List<string> GetUniqueValuesForColumn(string columnName)
         {
+            // Strip " [hidden]" suffix used for display
+            if (columnName.EndsWith(" [hidden]"))
+                columnName = columnName.Substring(0, columnName.Length - " [hidden]".Length);
+
             if (_rawScheduleData == null || !_rawScheduleData.Columns.Contains(columnName))
                 return new List<string>();
 
@@ -1244,7 +1344,7 @@ namespace ProSchedules.UI
 
         internal void ApplyFilterLogic()
         {
-            if (SheetsDataGrid.ItemsSource is System.Data.DataView dataView)
+            if (ScheduleDataGrid.ItemsSource is System.Data.DataView dataView)
             {
                 var activeFilters = FilterCriteria
                     .Where(f => !string.IsNullOrEmpty(f.SelectedColumn) && f.SelectedColumn != "(none)")
@@ -1259,7 +1359,11 @@ namespace ProSchedules.UI
                 var parts = new List<string>();
                 foreach (var f in activeFilters)
                 {
-                    string col = f.SelectedColumn.Replace("]", "]]");
+                    // Strip the " [hidden]" suffix that is shown in the UI for hidden columns
+                    string rawCol = f.SelectedColumn.EndsWith(" [hidden]")
+                        ? f.SelectedColumn.Substring(0, f.SelectedColumn.Length - " [hidden]".Length)
+                        : f.SelectedColumn;
+                    string col = rawCol.Replace("]", "]]");
                     string val = (f.Value ?? "").Replace("'", "''");
 
                     string expr = null;
@@ -1307,21 +1411,35 @@ namespace ProSchedules.UI
                         case "has no value":
                             expr = $"(CONVERT([{col}], System.String) = '' OR [{col}] IS NULL)";
                             break;
+                        case "parameter exists":
+                            expr = $"[{col}] IS NOT NULL";
+                            break;
+                        case "parameter does not exist":
+                            expr = $"[{col}] IS NULL";
+                            break;
                     }
 
                     if (expr != null) parts.Add($"({expr})");
                 }
 
                 // Always let separator/footer rows through so they're never hidden by active filters
-                dataView.RowFilter = parts.Count > 0
-                    ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" AND ", parts)})"
-                    : string.Empty;
+                try
+                {
+                    dataView.RowFilter = parts.Count > 0
+                        ? $"(RowState = 'BlankLine') OR (RowState = 'FooterLine') OR ({string.Join(" AND ", parts)})"
+                        : string.Empty;
+                }
+                catch (Exception filterEx)
+                {
+                    ShowPopup("Filter Error", $"One or more filter rules could not be applied:\n{filterEx.Message}");
+                    dataView.RowFilter = string.Empty;
+                }
             }
         }
 
         private void ApplyCurrentSortLogic()
         {
-            if (SheetsDataGrid.ItemsSource == null) return;
+            if (ScheduleDataGrid.ItemsSource == null) return;
 
             bool isNonItemized = _currentScheduleData != null &&
                                  _scheduleItemizeSettings.ContainsKey(_currentScheduleData.ScheduleId) &&
@@ -1341,7 +1459,7 @@ namespace ProSchedules.UI
                 RefreshScheduleView(false);
             }
 
-            System.ComponentModel.ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(SheetsDataGrid.ItemsSource);
+            System.ComponentModel.ICollectionView view = System.Windows.Data.CollectionViewSource.GetDefaultView(ScheduleDataGrid.ItemsSource);
             view.SortDescriptions.Clear();
 
             foreach (var sortItem in SortCriteria)
@@ -1612,7 +1730,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private void SheetsDataGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e)
+        private void ScheduleDataGrid_BeginningEdit(object sender, DataGridBeginningEditEventArgs e)
         {
             var row = e.Row.Item as System.Data.DataRowView;
             if (row != null)
@@ -1885,9 +2003,9 @@ namespace ProSchedules.UI
             }
 
             // If we are here, we clicked empty space (background, borders, etc.) -> Deselect All
-            if (SheetsDataGrid != null)
+            if (ScheduleDataGrid != null)
             {
-                SheetsDataGrid.UnselectAll();
+                ScheduleDataGrid.UnselectAll();
             }
         }
 
@@ -1901,7 +2019,7 @@ namespace ProSchedules.UI
             try
             {
                 // 1. Validate no sheet number conflicts
-                if (!ValidateAllSheets())
+                if (!ValidateAllItems())
                 {
                     return; // Error message already shown
                 }
@@ -1951,7 +2069,7 @@ namespace ProSchedules.UI
                     var toRemove = Sheets.Where(s => s.State == SheetItemState.PendingCreation).ToList();
                     foreach (var sheet in toRemove)
                     {
-                        sheet.PropertyChanged -= OnSheetPropertyChanged; // Unsubscribe
+                        sheet.PropertyChanged -= OnItemPropertyChanged; // Unsubscribe
                         Sheets.Remove(sheet);
                         FilteredSheets.Remove(sheet);
                     }
@@ -1983,7 +2101,7 @@ namespace ProSchedules.UI
                 List<ElementId> elementIds = new List<ElementId>();
 
                 // Check referencing ItemsSource to determine mode
-                if (SheetsDataGrid.ItemsSource is System.Data.DataView dataView)
+                if (ScheduleDataGrid.ItemsSource is System.Data.DataView dataView)
                 {
                     // Schedule Mode (DataTable)
                     foreach (System.Data.DataRowView row in dataView)
@@ -2054,7 +2172,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private void OnSheetPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnItemPropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (sender is SheetItem sheet && (e.PropertyName == "Name" || e.PropertyName == "SheetNumber"))
             {
@@ -2065,8 +2183,22 @@ namespace ProSchedules.UI
                     sheet.State = SheetItemState.PendingEdit;
                 }
 
-                ValidateSheetNumber(sheet);
+                // If the sheet was reverted to original values, reset state
+                if (sheet.State == SheetItemState.PendingEdit &&
+                    sheet.SheetNumber == sheet.OriginalSheetNumber && sheet.Name == sheet.OriginalName)
+                {
+                    sheet.State = SheetItemState.ExistingInRevit;
+                }
+
+                ValidateItemNumber(sheet);
                 UpdateButtonStates();
+
+                // In Auto mode, immediately push sheet edits to Revit
+                if (!_isManualMode && sheet.State == SheetItemState.PendingEdit && !sheet.HasNumberConflict)
+                {
+                    _editHandler.SheetsToEdit = new List<SheetItem> { sheet };
+                    _editExternalEvent.Raise();
+                }
             }
         }
 
@@ -2091,12 +2223,12 @@ namespace ProSchedules.UI
                 }
                 else
                 {
-                    ShowPopup("Success", $"Successfully updated {success} sheet(s).");
+                    ShowPopup("Success", $"Successfully updated {success} item(s).");
                 }
             });
         }
 
-        private void ValidateSheetNumber(SheetItem sheet)
+        private void ValidateItemNumber(SheetItem sheet)
         {
             var duplicates = Sheets.Where(s =>
                 s != sheet &&
@@ -2106,17 +2238,17 @@ namespace ProSchedules.UI
 
             sheet.HasNumberConflict = duplicates.Any();
             sheet.ValidationError = duplicates.Any()
-                ? $"Sheet number '{sheet.SheetNumber}' already exists"
+                ? $"Number '{sheet.SheetNumber}' already exists"
                 : null;
         }
 
-        private bool ValidateAllSheets()
+        private bool ValidateAllItems()
         {
             bool hasErrors = false;
 
             foreach (var sheet in Sheets.Where(s => s.HasUnsavedChanges))
             {
-                ValidateSheetNumber(sheet);
+                ValidateItemNumber(sheet);
                 if (sheet.HasNumberConflict)
                 {
                     hasErrors = true;
@@ -2125,7 +2257,7 @@ namespace ProSchedules.UI
 
             if (hasErrors)
             {
-                ShowPopup("Validation Error", "Please fix duplicate sheet numbers before applying.");
+                ShowPopup("Validation Error", "Please fix duplicate numbers before applying.");
                 return false;
             }
 
@@ -2150,7 +2282,7 @@ namespace ProSchedules.UI
                 if (isScheduleMode)
                 {
                     // Get selected rows from schedule DataView
-                    var view = SheetsDataGrid.ItemsSource as System.Data.DataView;
+                    var view = ScheduleDataGrid.ItemsSource as System.Data.DataView;
                     if (view == null)
                     {
                         ShowPopup("Error", "No schedule data available.");
@@ -2195,13 +2327,13 @@ namespace ProSchedules.UI
                     var selectedSheets = Sheets.Where(x => x.IsSelected).ToList();
                     if (selectedSheets.Count == 0)
                     {
-                        ShowPopup("No Sheets Selected", "Please select at least one sheet to rename.");
+                        ShowPopup("No Items Selected", "Please select at least one item to rename.");
                         return;
                     }
 
                     // Open RenameWindow in sheet mode
                     _renameWindow = new RenameWindow(this, selectedSheets);
-                    _renameWindow.OnSheetRenameApply += OnSheetRenameApply;
+                    _renameWindow.OnItemRenameApply += OnItemRenameApply;
                     _renameWindow.ShowDialog();
                 }
             }
@@ -2217,7 +2349,7 @@ namespace ProSchedules.UI
             _parameterRenameExternalEvent.Raise();
         }
 
-        private void OnSheetRenameApply(List<RenamePreviewItem> items, string parameterName)
+        private void OnItemRenameApply(List<RenamePreviewItem> items, string parameterName)
         {
             bool isSheetNumber = parameterName == "Sheet Number";
 
@@ -2400,6 +2532,10 @@ namespace ProSchedules.UI
         {
             Dispatcher.Invoke(() =>
             {
+                // Clear manual mode pending state after apply
+                _pendingParameterChanges.Clear();
+                ClearAllCellHighlights();
+
                 // Reload schedule data to show updated values from Revit
                 var selectedItem = SchedulesComboBox.SelectedItem as ScheduleOption;
                 if (selectedItem?.Schedule != null)
@@ -2514,15 +2650,15 @@ namespace ProSchedules.UI
             // RenamePopupOverlay.Visibility = Visibility.Collapsed;
         }
 
-        private void SheetsDataGrid_KeyDown(object sender, KeyEventArgs e)
+        private void ScheduleDataGrid_KeyDown(object sender, KeyEventArgs e)
         {
             if (e.Key == Key.Escape)
             {
                 // Clear cell selection
-                if (SheetsDataGrid != null && SheetsDataGrid.SelectedCells.Count > 0)
+                if (ScheduleDataGrid != null && ScheduleDataGrid.SelectedCells.Count > 0)
                 {
-                    SheetsDataGrid.SelectedCells.Clear();
-                    SheetsDataGrid.CurrentCell = new DataGridCellInfo();
+                    ScheduleDataGrid.SelectedCells.Clear();
+                    ScheduleDataGrid.CurrentCell = new DataGridCellInfo();
                     e.Handled = true;
                 }
             }
@@ -2556,8 +2692,8 @@ namespace ProSchedules.UI
             if (thumb != null)
             {
                 // Find the target cell under the mouse
-                var point = Mouse.GetPosition(SheetsDataGrid);
-                var hitResult = VisualTreeHelper.HitTest(SheetsDataGrid, point);
+                var point = Mouse.GetPosition(ScheduleDataGrid);
+                var hitResult = VisualTreeHelper.HitTest(ScheduleDataGrid, point);
                 if (hitResult == null) return;
                 
                 DataGridCell targetCell = FindVisualParent<DataGridCell>(hitResult.VisualHit);
@@ -2567,17 +2703,17 @@ namespace ProSchedules.UI
                 // Or checking if selection actually needs change could be optimization
                 
                 // Get Anchor (Current Cell)
-                var anchorInfo = SheetsDataGrid.CurrentCell;
+                var anchorInfo = ScheduleDataGrid.CurrentCell;
                 if (!anchorInfo.IsValid) return;
 
                 var anchorItem = anchorInfo.Item;
                 var anchorCol = anchorInfo.Column;
                 
                 // Resolve Indices
-                int anchorRowIdx = SheetsDataGrid.Items.IndexOf(anchorItem);
+                int anchorRowIdx = ScheduleDataGrid.Items.IndexOf(anchorItem);
                 int anchorColIdx = anchorCol.DisplayIndex;
                 
-                int targetRowIdx = SheetsDataGrid.Items.IndexOf(targetCell.DataContext);
+                int targetRowIdx = ScheduleDataGrid.Items.IndexOf(targetCell.DataContext);
                 int targetColIdx = targetCell.Column.DisplayIndex;
                 
                 if (anchorRowIdx < 0 || targetRowIdx < 0) return;
@@ -2588,16 +2724,16 @@ namespace ProSchedules.UI
                 int minCol = Math.Min(anchorColIdx, targetColIdx);
                 int maxCol = Math.Max(anchorColIdx, targetColIdx);
                 
-                SheetsDataGrid.SelectedCells.Clear();
+                ScheduleDataGrid.SelectedCells.Clear();
                 
                 // Select Range
                 for (int r = minRow; r <= maxRow; r++)
                 {
-                    var item = SheetsDataGrid.Items[r];
+                    var item = ScheduleDataGrid.Items[r];
                     for (int c = minCol; c <= maxCol; c++)
                     {
-                        var col = SheetsDataGrid.Columns[c];
-                        SheetsDataGrid.SelectedCells.Add(new DataGridCellInfo(item, col));
+                        var col = ScheduleDataGrid.Columns[c];
+                        ScheduleDataGrid.SelectedCells.Add(new DataGridCellInfo(item, col));
                     }
                 }
                 
@@ -2623,10 +2759,10 @@ namespace ProSchedules.UI
         {
             try
             {
-                if (SheetsDataGrid.SelectedCells.Count < 2) return;
+                if (ScheduleDataGrid.SelectedCells.Count < 2) return;
 
                 // 1. Get Anchor Value (CurrentCell)
-                var anchorInfo = SheetsDataGrid.CurrentCell;
+                var anchorInfo = ScheduleDataGrid.CurrentCell;
                 if (!anchorInfo.IsValid) return;
 
                 var anchorRow = anchorInfo.Item as System.Data.DataRowView;
@@ -2657,14 +2793,14 @@ namespace ProSchedules.UI
                 
                 string sourceValue = anchorRow[colName]?.ToString() ?? "";
                 
-                int anchorRowIndex = SheetsDataGrid.Items.IndexOf(anchorRow);
+                int anchorRowIndex = ScheduleDataGrid.Items.IndexOf(anchorRow);
 
                 // 2. Prepare Updates
                 var updates = new List<ParameterUpdateInfo>();
                 bool hasTypeParameters = false;
                 var affectedTypeParams = new HashSet<string>();
 
-                foreach (var cellInfo in SheetsDataGrid.SelectedCells)
+                foreach (var cellInfo in ScheduleDataGrid.SelectedCells)
                 {
                     // Skip if it's the anchor itself (Reference equality check on Item and Column)
                     if (cellInfo.Item == anchorInfo.Item && cellInfo.Column == anchorInfo.Column) continue;
@@ -2718,7 +2854,7 @@ namespace ProSchedules.UI
                     string newValue;
                     if (mode == SmartFillMode.Series)
                     {
-                        int targetRowIndex = SheetsDataGrid.Items.IndexOf(targetRow);
+                        int targetRowIndex = ScheduleDataGrid.Items.IndexOf(targetRow);
                         int offset = targetRowIndex - anchorRowIndex;
                         newValue = GetSequentialValue(sourceValue, offset);
                     }
@@ -2770,7 +2906,7 @@ namespace ProSchedules.UI
         {
             try
             {
-                var anchorInfo = SheetsDataGrid.CurrentCell;
+                var anchorInfo = ScheduleDataGrid.CurrentCell;
                 if (!anchorInfo.IsValid) return;
 
                 bool anchorValue = false;
@@ -2790,7 +2926,7 @@ namespace ProSchedules.UI
 
                 int updatedCount = 0;
 
-                foreach (var cellInfo in SheetsDataGrid.SelectedCells)
+                foreach (var cellInfo in ScheduleDataGrid.SelectedCells)
                 {
                     // Skip if it's the anchor itself
                     if (cellInfo.Item == anchorInfo.Item && cellInfo.Column == anchorInfo.Column) continue;
@@ -2831,7 +2967,7 @@ namespace ProSchedules.UI
         {
             if (SelectionCanvas == null) return;
 
-            if (SheetsDataGrid.SelectedCells.Count == 0)
+            if (ScheduleDataGrid.SelectedCells.Count == 0)
             {
                 SelectionBox.Visibility = System.Windows.Visibility.Collapsed;
                 FillHandle.Visibility = System.Windows.Visibility.Collapsed;
@@ -2843,9 +2979,9 @@ namespace ProSchedules.UI
             System.Windows.Rect unionRect = System.Windows.Rect.Empty;
             bool hasVisibleCells = false;
 
-            foreach (var cellInfo in SheetsDataGrid.SelectedCells)
+            foreach (var cellInfo in ScheduleDataGrid.SelectedCells)
             {
-                var row = SheetsDataGrid.ItemContainerGenerator.ContainerFromItem(cellInfo.Item) as DataGridRow;
+                var row = ScheduleDataGrid.ItemContainerGenerator.ContainerFromItem(cellInfo.Item) as DataGridRow;
                 if (row == null) continue; // Row not loaded/visible
 
                 var col = cellInfo.Column;
@@ -2947,6 +3083,59 @@ namespace ProSchedules.UI
         {
             if (updates == null || updates.Count == 0) return;
 
+            if (_isManualMode)
+            {
+                // Queue all updates as pending changes instead of executing immediately
+                foreach (var update in updates)
+                {
+                    int rowIndex = -1;
+                    if (update.Row != null)
+                    {
+                        rowIndex = update.Row.Row.Table.Rows.IndexOf(update.Row.Row);
+                    }
+
+                    var existing = _pendingParameterChanges.FirstOrDefault(p =>
+                        p.ElementIdStr == update.ElementIdStr &&
+                        p.ParameterId.Value == update.ParameterId.Value &&
+                        p.ColumnName == update.ColumnName);
+
+                    if (existing != null)
+                    {
+                        existing.NewValue = update.NewValue;
+                    }
+                    else
+                    {
+                        string oldValue = "";
+                        if (update.Row != null && update.Row.Row.Table.Columns.Contains(update.ColumnName))
+                        {
+                            oldValue = update.Row[update.ColumnName]?.ToString() ?? "";
+                        }
+
+                        _pendingParameterChanges.Add(new PendingParameterChange
+                        {
+                            ElementIdStr = update.ElementIdStr,
+                            ParameterId = update.ParameterId,
+                            NewValue = update.NewValue,
+                            OldValue = oldValue,
+                            ColumnName = update.ColumnName,
+                            RowIndex = rowIndex
+                        });
+
+                        // Show the new value immediately in the grid without waiting for Apply
+                        if (update.Row != null && update.Row.Row.Table.Columns.Contains(update.ColumnName))
+                        {
+                            update.Row[update.ColumnName] = update.NewValue;
+                        }
+                    }
+
+                    if (update.Row != null)
+                    {
+                        HighlightPendingCell(update.Row, update.ColumnName);
+                    }
+                }
+                return;
+            }
+
             var batchData = new List<ParameterBatchData>();
             foreach (var update in updates)
             {
@@ -2999,14 +3188,14 @@ namespace ProSchedules.UI
 
 
 
-        private void SheetsDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ScheduleDataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             UpdateSelectionAdorner();
         }
 
-        private void SheetsDataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        private void ScheduleDataGrid_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
         {
-            var scrollViewer = GetScrollViewer(SheetsDataGrid);
+            var scrollViewer = GetScrollViewer(ScheduleDataGrid);
             if (scrollViewer == null) return;
 
             // Handle horizontal scrolling with Shift + MouseWheel OR horizontal wheel
@@ -3041,12 +3230,12 @@ namespace ProSchedules.UI
             return null;
         }
 
-        private void SheetSearch_TextChanged(object sender, TextChangedEventArgs e)
+        private void ScheduleSearch_TextChanged(object sender, TextChangedEventArgs e)
         {
             var searchText = (sender as System.Windows.Controls.TextBox)?.Text?.ToLowerInvariant() ?? "";
 
             // Schedule mode — filter the DataView via RowFilter
-            if (_currentScheduleData != null && SheetsDataGrid.ItemsSource is System.Data.DataView dataView)
+            if (_currentScheduleData != null && ScheduleDataGrid.ItemsSource is System.Data.DataView dataView)
             {
                 if (string.IsNullOrEmpty(searchText))
                 {
@@ -3080,12 +3269,12 @@ namespace ProSchedules.UI
             }
         }
 
-        private void ClearSheetSearch_Click(object sender, RoutedEventArgs e)
+        private void ClearScheduleSearch_Click(object sender, RoutedEventArgs e)
         {
-            SheetSearchBox.Clear();
+            ScheduleSearchBox.Clear();
         }
 
-        private void SheetCheckBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        private void RowCheckBox_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             if (sender is CheckBox checkBox && checkBox.DataContext is SheetItem clickedItem)
             {
@@ -3093,9 +3282,9 @@ namespace ProSchedules.UI
                 bool newState = !(checkBox.IsChecked ?? false);
                 checkBox.IsChecked = newState;
 
-                if (SheetsDataGrid.SelectedItems.Contains(clickedItem))
+                if (ScheduleDataGrid.SelectedItems.Contains(clickedItem))
                 {
-                    foreach (SheetItem item in SheetsDataGrid.SelectedItems)
+                    foreach (SheetItem item in ScheduleDataGrid.SelectedItems)
                     {
                         if (item != clickedItem)
                         {
@@ -3106,7 +3295,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private void SelectAllSheets_Checked(object sender, RoutedEventArgs e)
+        private void SelectAll_Checked(object sender, RoutedEventArgs e)
         {
             foreach (var sheet in FilteredSheets)
             {
@@ -3114,7 +3303,7 @@ namespace ProSchedules.UI
             }
         }
 
-        private void SelectAllSheets_Unchecked(object sender, RoutedEventArgs e)
+        private void SelectAll_Unchecked(object sender, RoutedEventArgs e)
         {
             foreach (var sheet in FilteredSheets)
             {
@@ -3210,6 +3399,269 @@ namespace ProSchedules.UI
             {
                 MessageBox.Show($"Failed to save settings: {ex.Message}", "Save Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        #endregion
+
+        #region Manual Update Mode
+
+        private void ManualModeToggle_Click(object sender, RoutedEventArgs e)
+        {
+            bool wasManualMode = _isManualMode;
+            _isManualMode = ManualModeToggle.IsChecked == true;
+            UpdateManualModeUI();
+            SaveManualModeState();
+
+            // If switching from Manual back to Auto with pending changes, prompt
+            if (wasManualMode && !_isManualMode && HasPendingManualChanges())
+            {
+                ShowConfirmationPopup("Switch to Auto Mode",
+                    "You have pending changes. Apply them before switching to Auto mode?",
+                    () => { ApplyAllPendingChanges(); },
+                    () => { CancelAllPendingChanges(); });
+            }
+        }
+
+        private void UpdateManualModeUI()
+        {
+            if (_isManualMode)
+            {
+                ManualApplyButton.IsEnabled = true;
+                ManualApplyButton.Opacity = 1.0;
+                ManualCancelButton.IsEnabled = true;
+                ManualCancelButton.Opacity = 1.0;
+            }
+            else
+            {
+                ManualApplyButton.IsEnabled = false;
+                ManualApplyButton.Opacity = 0.3;
+                ManualCancelButton.IsEnabled = false;
+                ManualCancelButton.Opacity = 0.3;
+            }
+        }
+
+        private void LoadManualModeState()
+        {
+            try
+            {
+                var config = LoadConfig();
+                if (TryGetBool(config, "IsManualMode", out var isManual))
+                {
+                    _isManualMode = isManual;
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            if (ManualModeToggle != null)
+            {
+                ManualModeToggle.IsChecked = _isManualMode;
+            }
+            UpdateManualModeUI();
+        }
+
+        private void SaveManualModeState()
+        {
+            try
+            {
+                var config = LoadConfig();
+                config["IsManualMode"] = _isManualMode;
+                SaveConfig(config);
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private bool HasPendingManualChanges()
+        {
+            return _pendingParameterChanges.Count > 0 ||
+                   Sheets.Any(s => s.HasUnsavedChanges);
+        }
+
+        private void ManualApply_Click(object sender, RoutedEventArgs e)
+        {
+            ApplyAllPendingChanges();
+        }
+
+        private void ApplyAllPendingChanges()
+        {
+            // 1. Apply pending schedule parameter changes
+            if (_pendingParameterChanges.Count > 0)
+            {
+                var batchData = _pendingParameterChanges.Select(p => new ExternalEvents.ParameterBatchData
+                {
+                    ElementIdStr = p.ElementIdStr,
+                    ParameterId = p.ParameterId,
+                    Value = p.NewValue
+                }).ToList();
+
+                _parameterValueUpdateHandler.IsBatchMode = true;
+                _parameterValueUpdateHandler.BatchData = batchData;
+                _parameterValueUpdateExternalEvent.Raise();
+                // _pendingParameterChanges will be cleared in OnParameterValueUpdateFinished
+            }
+
+            // 2. Apply pending sheet edits
+            var sheetsToEdit = Sheets.Where(s => s.State == SheetItemState.PendingEdit).ToList();
+            if (sheetsToEdit.Count > 0)
+            {
+                _editHandler.SheetsToEdit = sheetsToEdit;
+                _editExternalEvent.Raise();
+            }
+
+            // 3. Apply pending sheet creations
+            var sheetsToCreate = Sheets.Where(s => s.State == SheetItemState.PendingCreation).ToList();
+            if (sheetsToCreate.Count > 0)
+            {
+                _handler.PendingSheetData = sheetsToCreate;
+                _externalEvent.Raise();
+            }
+        }
+
+        private void ManualCancel_Click(object sender, RoutedEventArgs e)
+        {
+            if (!HasPendingManualChanges()) return;
+
+            ShowConfirmationPopup("Confirm Cancel", "Discard all pending changes?",
+                () => { CancelAllPendingChanges(); });
+        }
+
+        private void CancelAllPendingChanges()
+        {
+            // 1. Revert schedule parameter changes in the DataTable UI
+            var view = ScheduleDataGrid.ItemsSource as System.Data.DataView;
+            if (view != null)
+            {
+                foreach (var change in _pendingParameterChanges)
+                {
+                    if (change.RowIndex >= 0 && change.RowIndex < view.Table.Rows.Count)
+                    {
+                        var row = view.Table.Rows[change.RowIndex];
+                        if (view.Table.Columns.Contains(change.ColumnName))
+                        {
+                            row[change.ColumnName] = change.OldValue;
+                        }
+                    }
+                }
+            }
+            _pendingParameterChanges.Clear();
+            ClearAllCellHighlights();
+
+            // 2. Revert pending sheet edits
+            foreach (var sheet in Sheets.Where(s => s.State == SheetItemState.PendingEdit).ToList())
+            {
+                sheet.SheetNumber = sheet.OriginalSheetNumber;
+                sheet.Name = sheet.OriginalName;
+                sheet.State = SheetItemState.ExistingInRevit;
+            }
+
+            // 3. Remove pending sheet creations
+            var toRemove = Sheets.Where(s => s.State == SheetItemState.PendingCreation).ToList();
+            foreach (var sheet in toRemove)
+            {
+                sheet.PropertyChanged -= OnItemPropertyChanged;
+                Sheets.Remove(sheet);
+                FilteredSheets.Remove(sheet);
+            }
+
+            UpdateButtonStates();
+        }
+
+        private void HighlightPendingCell(System.Data.DataRowView row, string columnName)
+        {
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+            _highlightedCells.Add($"{rowIndex}:{columnName}");
+            ApplyCellHighlights();
+        }
+
+        private void ClearCellHighlight(System.Data.DataRowView row, string columnName)
+        {
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+            _highlightedCells.Remove($"{rowIndex}:{columnName}");
+            ApplyCellHighlights();
+        }
+
+        private void ClearAllCellHighlights()
+        {
+            _highlightedCells.Clear();
+            ApplyCellHighlights();
+        }
+
+        private void ApplyCellHighlights()
+        {
+            // Force the DataGrid to re-render rows so LoadingRow fires
+            if (ScheduleDataGrid.ItemsSource is System.Data.DataView)
+            {
+                ScheduleDataGrid.Items.Refresh();
+                UpdateSelectionAdorner();
+            }
+        }
+
+        private void ScheduleDataGrid_LoadingRow_ManualMode(object sender, DataGridRowEventArgs e)
+        {
+            if (!_isManualMode || _highlightedCells.Count == 0)
+            {
+                // Clear any previously applied highlights when not in manual mode
+                ClearRowCellHighlights(e.Row);
+                return;
+            }
+
+            var row = e.Row.Item as System.Data.DataRowView;
+            if (row == null) return;
+
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+
+            // We need to defer this until after the row is rendered
+            e.Row.Loaded -= Row_ApplyHighlights;
+            e.Row.Loaded += Row_ApplyHighlights;
+        }
+
+        private void Row_ApplyHighlights(object sender, RoutedEventArgs e)
+        {
+            var dataGridRow = sender as DataGridRow;
+            if (dataGridRow == null) return;
+            dataGridRow.Loaded -= Row_ApplyHighlights;
+
+            var row = dataGridRow.Item as System.Data.DataRowView;
+            if (row == null) return;
+
+            int rowIndex = row.Row.Table.Rows.IndexOf(row.Row);
+
+            foreach (var column in ScheduleDataGrid.Columns)
+            {
+                string colName = column.Header?.ToString();
+                if (colName == null) continue;
+
+                var cellContent = column.GetCellContent(dataGridRow);
+                if (cellContent == null) continue;
+                var cell = cellContent.Parent as DataGridCell;
+                if (cell == null) continue;
+
+                if (_isManualMode && _highlightedCells.Contains($"{rowIndex}:{colName}"))
+                {
+                    cell.Background = (Brush)FindResource("PendingChangeBrush");
+                }
+                else
+                {
+                    cell.ClearValue(DataGridCell.BackgroundProperty);
+                }
+            }
+        }
+
+        private void ClearRowCellHighlights(DataGridRow dataGridRow)
+        {
+            if (dataGridRow == null) return;
+
+            foreach (var column in ScheduleDataGrid.Columns)
+            {
+                var cellContent = column.GetCellContent(dataGridRow);
+                if (cellContent == null) continue;
+                var cell = cellContent.Parent as DataGridCell;
+                if (cell == null) continue;
+                cell.ClearValue(DataGridCell.BackgroundProperty);
             }
         }
 
@@ -3370,10 +3822,10 @@ namespace ProSchedules.UI
         private void DeferWindowShow()
         {
             Opacity = 0;
-            Loaded += DuplicateSheetsWindow_Loaded;
+            Loaded += ProSchedulesWindow_Loaded;
         }
 
-        private void DuplicateSheetsWindow_Loaded(object sender, RoutedEventArgs e)
+        private void ProSchedulesWindow_Loaded(object sender, RoutedEventArgs e)
         {
             TryShowWindow();
         }
@@ -3400,6 +3852,13 @@ namespace ProSchedules.UI
             try
             {
                 var config = LoadConfig();
+
+                // Migrate old config keys from DuplicateSheetsWindow.* to ProSchedulesWindow.*
+                MigrateConfigKey(config, "DuplicateSheetsWindow.Left", WindowLeftKey);
+                MigrateConfigKey(config, "DuplicateSheetsWindow.Top", WindowTopKey);
+                MigrateConfigKey(config, "DuplicateSheetsWindow.Width", WindowWidthKey);
+                MigrateConfigKey(config, "DuplicateSheetsWindow.Height", WindowHeightKey);
+
                 bool hasLeft = TryGetDouble(config, WindowLeftKey, out var left);
                 bool hasTop = TryGetDouble(config, WindowTopKey, out var top);
                 bool hasWidth = TryGetDouble(config, WindowWidthKey, out var width);
@@ -3429,6 +3888,19 @@ namespace ProSchedules.UI
             }
             catch (Exception)
             {
+            }
+        }
+
+        /// <summary>
+        /// Migrates a config key from an old name to a new name, removing the old key.
+        /// </summary>
+        private void MigrateConfigKey(Dictionary<string, object> config, string oldKey, string newKey)
+        {
+            if (!config.ContainsKey(newKey) && config.ContainsKey(oldKey))
+            {
+                config[newKey] = config[oldKey];
+                config.Remove(oldKey);
+                try { SaveConfig(config); } catch { }
             }
         }
 

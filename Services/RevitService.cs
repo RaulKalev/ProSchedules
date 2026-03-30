@@ -52,12 +52,11 @@ namespace ProSchedules.Services
             foreach (var id in fieldIds)
             {
                 ScheduleField field = def.GetField(id);
-                if (!field.IsHidden)
-                {
-                    fields.Add(field);
-                    data.Columns.Add(field.GetName());
-                    data.ParameterIds.Add(field.ParameterId);
-                }
+                fields.Add(field);
+                data.Columns.Add(field.GetName());
+                data.ParameterIds.Add(field.ParameterId);
+                if (field.IsHidden)
+                    data.HiddenColumns.Add(field.GetName());
             }
 
             IList<Element> elements = new List<Element>();

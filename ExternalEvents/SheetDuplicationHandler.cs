@@ -431,7 +431,7 @@ namespace ProSchedules.ExternalEvents
 
         public string GetName()
         {
-            return "Sheet Duplication Handler";
+            return "Schedule Duplication Handler";
         }
     }
 }

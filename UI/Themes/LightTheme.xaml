@@ -33,5 +33,6 @@
     <SolidColorBrush x:Key="ScrollBarThumbBrush" Color="{StaticResource ScrollBarThumbColor}" />
     <SolidColorBrush x:Key="BlankLineBrush" Color="#FFCACACA" />
     <SolidColorBrush x:Key="FooterLineBrush" Color="#FFB0C4D8" />
+    <SolidColorBrush x:Key="PendingChangeBrush" Color="#60FF8C00" />
 
 </ResourceDictionary>

@@ -1,5 +1,5 @@
 ﻿<Window
-    x:Class="ProSchedules.UI.DuplicateSheetsWindow"
+    x:Class="ProSchedules.UI.ProSchedulesWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:av="http://schemas.microsoft.com/expression/blend/2008"
@@ -34,6 +34,14 @@
             </ResourceDictionary.MergedDictionaries>
             
             <ui:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+
+            <Style x:Key="PendingCellStyle" TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource ExcelLikeCellStyle}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding HasUnsavedChanges}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource PendingChangeBrush}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
 
 
 
@@ -100,6 +108,8 @@
                     <!-- Row 0: Title bar -->
                     <RowDefinition Height="*" />
                     <!-- Row 1: Content -->
+                    <RowDefinition Height="Auto" />
+                    <!-- Row 2: Bottom ribbon -->
                 </Grid.RowDefinitions>
 
                 <!-- Title bar (Row 0) -->
@@ -264,7 +274,7 @@
                                         <Style TargetType="TextBlock">
                                             <Setter Property="Visibility" Value="Collapsed"/>
                                             <Style.Triggers>
-                                                <DataTrigger Binding="{Binding Text, ElementName=SheetSearchBox}" Value="">
+                                                <DataTrigger Binding="{Binding Text, ElementName=ScheduleSearchBox}" Value="">
                                                     <Setter Property="Visibility" Value="Visible"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
@@ -273,19 +283,19 @@
                                 </TextBlock>
 
                                 <TextBox Grid.Column="1"
-                                         x:Name="SheetSearchBox"
+                                         x:Name="ScheduleSearchBox"
                                          Style="{StaticResource CustomTextBoxStyle}"
                                          Height="Auto"
                                          VerticalAlignment="Center"
                                          HorizontalAlignment="Stretch"
                                          Background="Transparent"
                                          BorderThickness="0"
-                                         TextChanged="SheetSearch_TextChanged"/>
+                                         TextChanged="ScheduleSearch_TextChanged"/>
 
                                 <Button Grid.Column="2"
                                         Width="24"
                                         Height="24"
-                                        Click="ClearSheetSearch_Click"
+                                        Click="ClearScheduleSearch_Click"
                                         ToolTip="Clear search"
                                         Style="{StaticResource FlatIconButton}">
                                     <materialDesign:PackIcon Kind="CloseCircleOutline" 
@@ -304,7 +314,7 @@
                               Style="{StaticResource FullWidthGroupBoxStyle}">
                         <Grid>
                             <DataGrid
-                                      x:Name="SheetsDataGrid"
+                                      x:Name="ScheduleDataGrid"
                                       ItemsSource="{Binding FilteredSheets}" 
                                       AutoGenerateColumns="False" 
                                       CanUserAddRows="False" 
@@ -325,17 +335,17 @@
                                       Margin="0,1,0,0"
                                       HorizontalScrollBarVisibility="Hidden"
                                       VerticalScrollBarVisibility="Auto"
-                                      SelectionChanged="SheetsDataGrid_SelectionChanged"
-                                      CellEditEnding="SheetsDataGrid_CellEditEnding"
-                                      PreviewMouseWheel="SheetsDataGrid_PreviewMouseWheel"
-                                      KeyDown="SheetsDataGrid_KeyDown">
+                                      SelectionChanged="ScheduleDataGrid_SelectionChanged"
+                                      CellEditEnding="ScheduleDataGrid_CellEditEnding"
+                                      PreviewMouseWheel="ScheduleDataGrid_PreviewMouseWheel"
+                                      KeyDown="ScheduleDataGrid_KeyDown">
                                 <DataGrid.Columns>
                                     <DataGridTemplateColumn Width="35" HeaderStyle="{StaticResource MultiRowHeaderStyle}">
                                         <DataGridTemplateColumn.Header>
                                             <CheckBox Style="{StaticResource DatagridCheckboxStyle}"
                                                       HorizontalAlignment="Center"
-                                                      Checked="SelectAllSheets_Checked"
-                                                      Unchecked="SelectAllSheets_Unchecked"
+                                                      Checked="SelectAll_Checked"
+                                                      Unchecked="SelectAll_Unchecked"
                                                       ToolTip="Select/Deselect All Visible"/>
                                         </DataGridTemplateColumn.Header>
                                         <DataGridTemplateColumn.CellTemplate>
@@ -344,7 +354,7 @@
                                                     <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                              Style="{StaticResource DatagridCheckboxStyle}"
                                                              Focusable="False"
-                                                             PreviewMouseLeftButtonDown="SheetCheckBox_PreviewMouseLeftButtonDown"/>
+                                                             PreviewMouseLeftButtonDown="RowCheckBox_PreviewMouseLeftButtonDown"/>
                                                 </Grid>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
@@ -355,14 +365,14 @@
                                                         Width="SizeToCells"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle}"
                                                         ElementStyle="{StaticResource EditableCellStyle}"
-                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
+                                                        CellStyle="{StaticResource PendingCellStyle}"/>
                                     <DataGridTextColumn Header="Name"
                                                         Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                         IsReadOnly="False"
                                                         Width="*"
                                                         HeaderStyle="{StaticResource MultiRowHeaderStyle_NoRightBorder}"
                                                         ElementStyle="{StaticResource EditableCellStyle}"
-                                                        CellStyle="{StaticResource ExcelLikeCellStyle}"/>
+                                                        CellStyle="{StaticResource PendingCellStyle}"/>
                                 </DataGrid.Columns>
                             </DataGrid>
                             
@@ -405,6 +415,85 @@
                         </Grid>
                     </GroupBox>
                 </Grid>
+
+                <!-- Bottom Ribbon: Manual Update Mode (Row 2) -->
+                <Border Grid.Row="2"
+                        Background="{DynamicResource SecondaryBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="0,1,0,0"
+                        Padding="10,5">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Auto/Manual Toggle -->
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="Auto"
+                                       Foreground="{DynamicResource ForegroundBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0" FontSize="11"/>
+                            <ToggleButton x:Name="ManualModeToggle"
+                                          Width="28" Height="15.5"
+                                          IsChecked="False"
+                                          Click="ManualModeToggle_Click"
+                                          ToolTip="Toggle Auto/Manual update mode">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                                        <Grid Background="Transparent">
+                                            <materialDesign:PackIcon
+                                                x:Name="ManualToggleIcon"
+                                                Width="30" Height="30"
+                                                HorizontalAlignment="Center"
+                                                VerticalAlignment="Center"
+                                                Foreground="{DynamicResource IconBrush}"
+                                                Kind="ToggleSwitchOffOutline" />
+                                        </Grid>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="ManualToggleIcon" Property="Kind" Value="ToggleSwitchOutline" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="False">
+                                                <Setter TargetName="ManualToggleIcon" Property="Kind" Value="ToggleSwitchOffOutline" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <TextBlock Text="Manual"
+                                       Foreground="{DynamicResource ForegroundBrush}"
+                                       VerticalAlignment="Center"
+                                       Margin="6,0,0,0" FontSize="11"/>
+                        </StackPanel>
+
+                        <!-- Apply Button -->
+                        <Button x:Name="ManualApplyButton"
+                                Grid.Column="2"
+                                Content="Apply"
+                                Click="ManualApply_Click"
+                                Style="{StaticResource CustomActionButtonStyle}"
+                                Width="80" Height="26"
+                                FontSize="11"
+                                Margin="0,0,8,0"
+                                IsEnabled="False"
+                                Opacity="0.3"/>
+
+                        <!-- Cancel Button -->
+                        <Button x:Name="ManualCancelButton"
+                                Grid.Column="3"
+                                Content="Cancel"
+                                Click="ManualCancel_Click"
+                                Style="{StaticResource CustomCancelButtonStyle}"
+                                Width="80" Height="26"
+                                FontSize="11"
+                                Margin="0"
+                                IsEnabled="False"
+                                Opacity="0.3"/>
+                    </Grid>
+                </Border>
 
             </Grid>
         </Border>
