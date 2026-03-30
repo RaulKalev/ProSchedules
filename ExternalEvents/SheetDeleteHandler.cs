@@ -27,7 +27,7 @@ namespace ProSchedules.ExternalEvents
                 return;
             }
 
-            using (var t = new Transaction(doc, "Delete Sheets"))
+            using (var t = new Transaction(doc, "Delete Items"))
             {
                 t.Start();
                 try
@@ -71,7 +71,7 @@ namespace ProSchedules.ExternalEvents
 
         public string GetName()
         {
-            return "Sheet Delete Handler";
+            return "Schedule Delete Handler";
         }
     }
 }

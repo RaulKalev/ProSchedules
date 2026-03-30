@@ -11,7 +11,7 @@ namespace ProSchedules.UI
 {
     public partial class RenameWindow : Window
     {
-        private readonly DuplicateSheetsWindow _parent;
+        private readonly ProSchedulesWindow _parent;
         private readonly bool _isScheduleMode;
         private readonly List<System.Data.DataRowView> _selectedScheduleRows;
         private readonly List<SheetItem> _selectedSheets;
@@ -22,9 +22,9 @@ namespace ProSchedules.UI
         public ObservableCollection<RenamePreviewItem> SheetPreviewItems { get; set; } = new ObservableCollection<RenamePreviewItem>();
 
         public event Action<List<ScheduleRenameItem>> OnScheduleRenameApply;
-        public event Action<List<RenamePreviewItem>, string> OnSheetRenameApply;
+        public event Action<List<RenamePreviewItem>, string> OnItemRenameApply;
 
-        public RenameWindow(DuplicateSheetsWindow parent, List<System.Data.DataRowView> scheduleRows, ScheduleData scheduleData)
+        public RenameWindow(ProSchedulesWindow parent, List<System.Data.DataRowView> scheduleRows, ScheduleData scheduleData)
         {
             _parent = parent;
             _isScheduleMode = true;
@@ -38,7 +38,7 @@ namespace ProSchedules.UI
             InitializeScheduleMode();
         }
 
-        public RenameWindow(DuplicateSheetsWindow parent, List<SheetItem> sheets)
+        public RenameWindow(ProSchedulesWindow parent, List<SheetItem> sheets)
         {
             _parent = parent;
             _isScheduleMode = false;
@@ -66,7 +66,7 @@ namespace ProSchedules.UI
                 {
                     Name = col,
                     IsTypeParameter = isType,
-                    IsSheetParameter = false
+                    IsBuiltInParameter = false
                 });
             }
 
@@ -84,13 +84,13 @@ namespace ProSchedules.UI
             ParameterOptions.Add(new RenameParameterOption 
             { 
                 Name = "Sheet Number", 
-                IsSheetParameter = true,
+                IsBuiltInParameter = true,
                 IsTypeParameter = false
             });
             ParameterOptions.Add(new RenameParameterOption 
             { 
                 Name = "Sheet Name", 
-                IsSheetParameter = true,
+                IsBuiltInParameter = true,
                 IsTypeParameter = false
             });
 
@@ -221,7 +221,7 @@ namespace ProSchedules.UI
                     .Where(x => x.Original != x.New)
                     .ToList();
 
-                OnSheetRenameApply?.Invoke(itemsToApply, selectedOption?.Name);
+                OnItemRenameApply?.Invoke(itemsToApply, selectedOption?.Name);
             }
 
             Close();

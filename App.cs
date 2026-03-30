@@ -32,10 +32,10 @@ namespace ProSchedules
             ribbonPanel = application.CreateOrSelectPanel(tabName, "Tools");
 
             // Create PushButton — icon set after based on current theme
-            _pushButton = ribbonPanel.CreatePushButton<ProSheetsCommand>()
+            _pushButton = ribbonPanel.CreatePushButton<ProSchedulesCommand>()
                 .SetText("Pro\r\nSchedules")
-                .SetToolTip("Manage sheet duplication and batch renaming.")
-                .SetLongDescription("Pro Schedules allows you to duplicate sheets in bulk, rename with find/replace, prefixes/suffixes, and preview changes before applying.")
+                .SetToolTip("View, edit, and manage Revit schedules.")
+                .SetLongDescription("Pro Schedules allows you to view and edit schedule data, batch rename parameter values with find/replace, sort, filter, and manage schedule fields — all from a single interface.")
                 .SetContextualHelp("https://github.com/RaulKalev/ProSchedules");
 
             UpdateRibbonIcon();
