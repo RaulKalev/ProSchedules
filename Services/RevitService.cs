@@ -76,6 +76,62 @@ namespace ProSchedules.Services
                         .ToElements();
                 }
             }
+            else
+            {
+                // Multi-category schedule: CategoryId is InvalidElementId.
+                // For project/shared parameters (positive IDs) we can resolve their bound
+                // categories from the document's ParameterBindings — much cheaper than
+                // collecting ALL model elements.
+                var boundCatIds = new Dictionary<long, ElementId>();
+                foreach (var field in fields)
+                {
+                    if (field.ParameterId == ElementId.InvalidElementId) continue;
+                    if (field.ParameterId.Value < 0) continue; // BuiltInParameter — universal
+
+                    try
+                    {
+                        ParameterElement pe = _doc.GetElement(field.ParameterId) as ParameterElement;
+                        if (pe == null) continue;
+
+                        Definition paramDef = pe.GetDefinition();
+                        var bindingMap = _doc.ParameterBindings;
+                        if (!bindingMap.Contains(paramDef)) continue;
+
+                        ElementBinding binding = bindingMap.get_Item(paramDef) as ElementBinding;
+                        if (binding == null) continue;
+
+                        foreach (Category cat in binding.Categories)
+                        {
+                            if (cat?.Id != null)
+                                boundCatIds[cat.Id.Value] = cat.Id;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (boundCatIds.Count > 0)
+                {
+                    var allElements = new List<Element>();
+                    foreach (var catId in boundCatIds.Values)
+                    {
+                        var catElements = new FilteredElementCollector(_doc)
+                            .OfCategoryId(catId)
+                            .WhereElementIsNotElementType()
+                            .ToElements();
+                        allElements.AddRange(catElements);
+                    }
+                    elements = allElements;
+                }
+                else
+                {
+                    // Only BuiltIn parameters — collect model instances as a fallback
+                    elements = new FilteredElementCollector(_doc)
+                        .WhereElementIsNotElementType()
+                        .Where(e => e.Category != null && e.Category.CategoryType == CategoryType.Model)
+                        .Cast<Element>()
+                        .ToList();
+                }
+            }
 
             if (!data.Columns.Contains("ElementId"))
             {
